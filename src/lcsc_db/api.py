@@ -145,3 +145,37 @@ class LCSCApi:
         if isinstance(res, dict) and res.get("result"):
             return res["result"]
         return {"dataList": [], "totalRow": 0, "currPage": page, "totalPage": 0}
+
+    def get_param_group(
+        self,
+        category_ids: Optional[Union[int, List[int]]] = None,
+        instock_only: bool = True,
+        keyword: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetch parameter groups and accurate totalCount from /product/query/param/group.
+
+        Args:
+            category_ids: Single category ID or list of category IDs.
+            instock_only: If True, filter in-stock items.
+            keyword: Keyword search query string.
+
+        Returns:
+            Dict containing 'totalCount' and parameter group attributes.
+        """
+        payload: Dict[str, Any] = {}
+        if category_ids is not None:
+            if isinstance(category_ids, list):
+                payload["catalogIdList"] = category_ids
+            else:
+                payload["catalogIdList"] = [category_ids]
+
+        if instock_only:
+            payload["isStock"] = True
+
+        if keyword:
+            payload["keyword"] = keyword
+
+        res = self._request_with_retry("POST", "/product/query/param/group", json_payload=payload)
+        if isinstance(res, dict) and res.get("result"):
+            return res["result"]
+        return {"totalCount": 0}

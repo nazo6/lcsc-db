@@ -59,6 +59,17 @@ def test_query_products_payload_options():
             },
         )
 
+        # Test get_param_group
+        api.get_param_group(category_ids=1199, instock_only=True)
+        mock_request.assert_called_with(
+            "POST",
+            "/product/query/param/group",
+            json_payload={
+                "catalogIdList": [1199],
+                "isStock": True,
+            },
+        )
+
 
 @pytest.mark.integration
 def test_live_get_category_tree():
@@ -73,7 +84,7 @@ def test_live_get_category_tree():
 
 @pytest.mark.integration
 def test_live_query_products_options():
-    """Live API test for querying products with options."""
+    """Live API test for querying products and param group with options."""
     api = LCSCApi(delay_seconds=0.5)
     
     # Test instock_only=True vs instock_only=False
@@ -83,3 +94,8 @@ def test_live_query_products_options():
     assert "dataList" in res_instock
     assert "dataList" in res_all
     assert res_instock["totalRow"] <= res_all["totalRow"]
+
+    # Test live get_param_group totalCount
+    res_group = api.get_param_group(category_ids=51, instock_only=True)
+    assert "totalCount" in res_group
+    assert res_group["totalCount"] > 0
