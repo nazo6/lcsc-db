@@ -59,13 +59,28 @@ def test_query_products_payload_options():
             },
         )
 
-        # Test get_param_group
-        api.get_param_group(category_ids=1199, instock_only=True)
+        # Test brand_ids option
+        api.query_products(category_ids=51, brand_ids=11615, instock_only=True)
+        mock_request.assert_called_with(
+            "POST",
+            "/product/query/list",
+            json_payload={
+                "currentPage": 1,
+                "pageSize": 100,
+                "catalogIdList": [51],
+                "brandIdList": [11615],
+                "isStock": True,
+            },
+        )
+
+        # Test get_param_group with brand_ids
+        api.get_param_group(category_ids=1199, brand_ids=[11615, 815], instock_only=True)
         mock_request.assert_called_with(
             "POST",
             "/product/query/param/group",
             json_payload={
                 "catalogIdList": [1199],
+                "brandIdList": [11615, 815],
                 "isStock": True,
             },
         )

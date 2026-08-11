@@ -33,9 +33,9 @@ def test_scraper_options_and_run(tmp_path):
     db.close()
 
 
-def test_scraper_partitioning_trigger(tmp_path):
-    """Test that totalRow >= 5000 triggers prefix sub-partitioning."""
-    db_file = tmp_path / "test_partition.sqlite3"
+def test_scraper_brand_partitioning_trigger(tmp_path):
+    """Test that totalRow >= threshold triggers brand-based partitioning."""
+    db_file = tmp_path / "test_brand_partition.sqlite3"
     api = LCSCApi(delay_seconds=0.0)
     db = LCSCDatabase(str(db_file))
 
@@ -44,34 +44,62 @@ def test_scraper_partitioning_trigger(tmp_path):
         db=db,
         instock_only=True,
         partition_threshold=100,  # Lower threshold for testing
-        max_partition_depth=1,
     )
 
-    mock_query_response_500 = {
-        "totalRow": 500,  # Exceeds threshold 100
-        "totalPage": 5,
-        "dataList": [{"productId": 999, "productCode": "C999", "productModel": "M999"}],
-    }
+    api.get_param_group = MagicMock(return_value={
+        "Manufacturer": [
+            {"id": "1001", "name": "BrandA"},
+            {"id": "1002", "name": "BrandB"},
+        ]
+    })
 
-    mock_query_response_50 = {
-        "totalRow": 50,
-        "totalPage": 1,
-        "dataList": [{"productId": 1001, "productCode": "C1001", "productModel": "M1001"}],
-    }
-
-    def mock_query(category_ids, page=1, page_size=100, instock_only=True, keyword=None):
-        if keyword is None:
-            return mock_query_response_500
-        return mock_query_response_50
+    def mock_query(category_ids, brand_ids=None, page=1, page_size=100, instock_only=True, keyword=None):
+        if brand_ids is None:
+            return {"totalRow": 500, "totalPage": 5, "dataList": [{"productId": 1, "productCode": "C1"}]}
+        return {"totalRow": 50, "totalPage": 1, "dataList": [{"productId": int(brand_ids[0] if isinstance(brand_ids, list) else brand_ids), "productCode": f"C{brand_ids}"}]}
 
     api.query_products = MagicMock(side_effect=mock_query)
 
-    # Run query for cat 100
     db.init_schema()
-    count = scraper._scrape_category_query(cat_id=100, cat_path="Test Cat", depth=0)
+    count = scraper._scrape_category_query(cat_id=100, cat_path="Test Cat")
 
-    # Should have called partitioned sub-queries for 0..9, a..z
-    assert api.query_products.call_count > 1
+    # Should have fetched param group and queried products per brand
+    assert api.get_param_group.call_count == 1
+    assert api.query_products.call_count >= 3
+    assert count == 2
+
+    db.close()
+
+
+def test_scraper_keyword_fallback_and_warning(tmp_path, caplog):
+    """Test fallback to single-char keyword split when brand query >= threshold, and warning when brand+kw >= threshold."""
+    db_file = tmp_path / "test_kw_fallback.sqlite3"
+    api = LCSCApi(delay_seconds=0.0)
+    db = LCSCDatabase(str(db_file))
+
+    scraper = LCSCScraper(
+        api=api,
+        db=db,
+        instock_only=True,
+        partition_threshold=100,
+    )
+
+    # Return no manufacturers to test direct fallback to keyword
+    api.get_param_group = MagicMock(return_value={"Manufacturer": []})
+
+    def mock_query(category_ids, brand_ids=None, page=1, page_size=100, instock_only=True, keyword=None):
+        # Always returns totalRow 200 >= threshold 100
+        return {"totalRow": 200, "totalPage": 2, "dataList": [{"productId": 99, "productCode": "C99"}]}
+
+    api.query_products = MagicMock(side_effect=mock_query)
+
+    db.init_schema()
+    import logging
+    with caplog.at_level(logging.WARNING):
+        count = scraper._scrape_category_query(cat_id=100, cat_path="Test Cat", brand_id=55, brand_name="BrandX")
+
+    # Should have triggered 0-z keyword split (36 chars) and logged warnings for each char without infinite recursion
+    assert "Exceeds max pagination capacity even after brand+keyword split" in caplog.text
     assert count > 0
 
     db.close()

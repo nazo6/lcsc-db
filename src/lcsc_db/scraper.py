@@ -70,19 +70,23 @@ class LCSCScraper:
         self,
         cat_id: int,
         cat_path: str,
+        brand_id: Optional[int] = None,
+        brand_name: Optional[str] = None,
         keyword: Optional[str] = None,
-        depth: int = 0,
         max_pages_per_category: Optional[int] = None,
         pbar: Optional[tqdm] = None,
     ) -> int:
-        """Scrape products for a category or category+keyword sub-partition.
+        """Scrape products for a category, optionally partitioned by brand and/or keyword.
 
-        If initial query totalRow >= partition_threshold and depth < max_partition_depth,
-        recursively partition the query using alphanumeric prefixes.
+        Hierarchical partitioning when totalRow >= partition_threshold:
+        1. If brand_id is None, fetch Manufacturer list from get_param_group and partition by brandIdList.
+        2. If brand_id is set (or no manufacturers exist) and keyword is None, fall back to 1-level 0-z single-char keyword partition.
+        3. If both brand_id (or kw) and keyword are set and totalRow >= partition_threshold, log a warning without deepening depth further.
         """
         # Test first page to get totalRow count
         res_first = self.api.query_products(
             category_ids=cat_id,
+            brand_ids=brand_id,
             page=1,
             page_size=100,
             instock_only=self.instock_only,
@@ -92,32 +96,71 @@ class LCSCScraper:
         total_rows = res_first.get("totalRow") or 0
 
         # Check if sub-partitioning is required
-        if (
-            total_rows >= self.partition_threshold
-            and depth < self.max_partition_depth
-            and not max_pages_per_category
-        ):
-            logger.info(
-                "Category %s (kw='%s', depth=%d) totalRow=%d >= %d. Partitioning by prefixes...",
+        if total_rows >= self.partition_threshold:
+            # Step 1: Primary partition by Manufacturer / Brand if brand_id is not set
+            if brand_id is None:
+                param_group = self.api.get_param_group(
+                    category_ids=cat_id,
+                    instock_only=self.instock_only,
+                    keyword=keyword,
+                )
+                mfrs = param_group.get("Manufacturer") or []
+                if mfrs:
+                    logger.info(
+                        "Category %s (totalRow=%d >= %d) partitioning by %d manufacturers...",
+                        cat_path,
+                        total_rows,
+                        self.partition_threshold,
+                        len(mfrs),
+                    )
+                    count = 0
+                    for m in mfrs:
+                        m_id = int(m["id"])
+                        m_name = m.get("name") or str(m_id)
+                        count += self._scrape_category_query(
+                            cat_id=cat_id,
+                            cat_path=cat_path,
+                            brand_id=m_id,
+                            brand_name=m_name,
+                            keyword=keyword,
+                            max_pages_per_category=max_pages_per_category,
+                            pbar=pbar,
+                        )
+                    return count
+
+            # Step 2: Secondary fallback to single-char keyword (0-9a-z) if keyword is not set
+            if keyword is None:
+                b_info = f"brand '{brand_name}' ({brand_id})" if brand_id else "no brand"
+                logger.info(
+                    "Category %s [%s] (totalRow=%d >= %d) falling back to 0-z keyword split...",
+                    cat_path,
+                    b_info,
+                    total_rows,
+                    self.partition_threshold,
+                )
+                count = 0
+                for char in PARTITION_CHARS:
+                    count += self._scrape_category_query(
+                        cat_id=cat_id,
+                        cat_path=cat_path,
+                        brand_id=brand_id,
+                        brand_name=brand_name,
+                        keyword=char,
+                        max_pages_per_category=max_pages_per_category,
+                        pbar=pbar,
+                    )
+                return count
+
+            # Step 3: If brand_id and keyword are both set (or single-char keyword set) and still >= partition_threshold, log warning & do not deepen depth
+            b_info = f"brand '{brand_name}' ({brand_id})" if brand_id else "no brand"
+            logger.warning(
+                "Category %s [%s, kw='%s'] totalRow=%d >= %d. Exceeds max pagination capacity even after brand+keyword split; scraping available pages without further splitting.",
                 cat_path,
-                keyword or "",
-                depth,
+                b_info,
+                keyword,
                 total_rows,
                 self.partition_threshold,
             )
-            count = 0
-            base_kw = keyword or ""
-            for char in PARTITION_CHARS:
-                sub_kw = f"{base_kw}{char}"
-                count += self._scrape_category_query(
-                    cat_id=cat_id,
-                    cat_path=cat_path,
-                    keyword=sub_kw,
-                    depth=depth + 1,
-                    max_pages_per_category=max_pages_per_category,
-                    pbar=pbar,
-                )
-            return count
 
         # Standard page loop for this query
         page = 1
@@ -129,6 +172,7 @@ class LCSCScraper:
             else:
                 res = self.api.query_products(
                     category_ids=cat_id,
+                    brand_ids=brand_id,
                     page=page,
                     page_size=100,
                     instock_only=self.instock_only,
@@ -141,8 +185,9 @@ class LCSCScraper:
 
             if pbar:
                 page_info = f"p.{page}/{total_pages}" if total_pages > 1 else f"p.{page}"
+                b_str = f" [brand='{brand_name or brand_id}']" if brand_id else ""
                 kw_str = f" [kw='{keyword}']" if keyword else ""
-                pbar.set_postfix_str(f"{cat_path}{kw_str} ({t_rows} items, {page_info})")
+                pbar.set_postfix_str(f"{cat_path}{b_str}{kw_str} ({t_rows} items, {page_info})")
 
             if not items:
                 break
@@ -204,7 +249,6 @@ class LCSCScraper:
             self._scrape_category_query(
                 cat_id=cat_id,
                 cat_path=cat_path,
-                depth=0,
                 max_pages_per_category=max_pages_per_category,
                 pbar=pbar,
             )

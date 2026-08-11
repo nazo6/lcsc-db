@@ -107,6 +107,7 @@ class LCSCApi:
     def query_products(
         self,
         category_ids: Optional[Union[int, List[int]]] = None,
+        brand_ids: Optional[Union[int, List[int]]] = None,
         page: int = 1,
         page_size: int = 100,
         instock_only: bool = True,
@@ -116,6 +117,7 @@ class LCSCApi:
 
         Args:
             category_ids: Single category ID or list of category IDs.
+            brand_ids: Single brand/manufacturer ID or list of brand IDs.
             page: Page number (1-indexed).
             page_size: Items per page (max 100).
             instock_only: If True, set isStock=True to filter in-stock items.
@@ -135,6 +137,12 @@ class LCSCApi:
             else:
                 payload["catalogIdList"] = [category_ids]
 
+        if brand_ids is not None:
+            if isinstance(brand_ids, list):
+                payload["brandIdList"] = brand_ids
+            else:
+                payload["brandIdList"] = [brand_ids]
+
         if instock_only:
             payload["isStock"] = True
 
@@ -149,6 +157,7 @@ class LCSCApi:
     def get_param_group(
         self,
         category_ids: Optional[Union[int, List[int]]] = None,
+        brand_ids: Optional[Union[int, List[int]]] = None,
         instock_only: bool = True,
         keyword: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -156,6 +165,7 @@ class LCSCApi:
 
         Args:
             category_ids: Single category ID or list of category IDs.
+            brand_ids: Single brand/manufacturer ID or list of brand IDs.
             instock_only: If True, filter in-stock items.
             keyword: Keyword search query string.
 
@@ -168,6 +178,12 @@ class LCSCApi:
                 payload["catalogIdList"] = category_ids
             else:
                 payload["catalogIdList"] = [category_ids]
+
+        if brand_ids is not None:
+            if isinstance(brand_ids, list):
+                payload["brandIdList"] = brand_ids
+            else:
+                payload["brandIdList"] = [brand_ids]
 
         if instock_only:
             payload["isStock"] = True
