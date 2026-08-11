@@ -95,6 +95,14 @@ class LCSCScraper:
 
         total_rows = res_first.get("totalRow") or 0
 
+        # Optimization: Immediately skip empty categories/queries
+        if total_rows == 0:
+            if pbar:
+                b_str = f" [brand='{brand_name or brand_id}']" if brand_id else ""
+                kw_str = f" [kw='{keyword}']" if keyword else ""
+                pbar.set_postfix_str(f"{cat_path}{b_str}{kw_str} (0 items)")
+            return 0
+
         # Check if sub-partitioning is required
         if total_rows >= self.partition_threshold:
             # Step 1: Primary partition by Manufacturer / Brand if brand_id is not set
