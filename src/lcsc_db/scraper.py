@@ -78,16 +78,34 @@ class LCSCScraper:
                 self._extract_all_categories(children, flat_list)
         return flat_list
 
+    def _find_leaf_catalogs(
+        self, cat_list: List[Dict[str, Any]], path: str = ""
+    ) -> List[Tuple[int, str, int]]:
+        """Find all leaf category IDs, breadcrumb names, and initial product count from catalogList."""
+        leaf_cats: List[Tuple[int, str, int]] = []
+        for c in cat_list:
+            cid = c.get("catalogId") or c.get("categoryId")
+            name = c.get("catalogNameEn") or c.get("categoryNameEn") or c.get("categoryNameCn") or str(cid)
+            cur_path = f"{path} > {name}" if path else name
+            children = c.get("childCatelogs") or c.get("childrenList") or []
+            pnum = c.get("productNum", 0)
+            if not children:
+                if cid:
+                    leaf_cats.append((cid, cur_path, pnum))
+            else:
+                leaf_cats.extend(self._find_leaf_catalogs(children, cur_path))
+        return leaf_cats
+
     def _find_leaf_categories(
         self, cat_list: List[Dict[str, Any]], path: str = ""
     ) -> List[Tuple[int, str]]:
         """Find all leaf category IDs and their breadcrumb names."""
         leaf_cats: List[Tuple[int, str]] = []
         for c in cat_list:
-            cid = c.get("categoryId")
-            name = c.get("categoryNameEn") or c.get("categoryNameCn") or str(cid)
+            cid = c.get("categoryId") or c.get("catalogId")
+            name = c.get("categoryNameEn") or c.get("catalogNameEn") or c.get("categoryNameCn") or str(cid)
             cur_path = f"{path} > {name}" if path else name
-            children = c.get("childrenList") or []
+            children = c.get("childrenList") or c.get("childCatelogs") or []
             if not children:
                 if cid:
                     leaf_cats.append((cid, cur_path))
@@ -104,6 +122,7 @@ class LCSCScraper:
         keyword: Optional[str] = None,
         max_pages_per_category: Optional[int] = None,
         pbar: Optional[tqdm] = None,
+        initial_product_num: Optional[int] = None,
     ) -> int:
         """Scrape products for a category, optionally partitioned by brand and/or keyword."""
         if self._should_stop():
@@ -116,6 +135,13 @@ class LCSCScraper:
                 brand_id,
                 keyword,
             )
+            return 0
+
+        # Optimization: Immediately skip empty categories if initial_product_num is explicitly 0
+        if initial_product_num == 0 and brand_id is None and keyword is None:
+            if pbar:
+                pbar.set_postfix_str(f"{cat_path} (0 items)")
+            self.db.mark_query_completed(cat_id, brand_id, keyword, total_rows=0, scraped_count=0)
             return 0
 
         # Test first page to get totalRow count
@@ -138,6 +164,7 @@ class LCSCScraper:
                 pbar.set_postfix_str(f"{cat_path}{b_str}{kw_str} (0 items)")
             self.db.mark_query_completed(cat_id, brand_id, keyword, total_rows=0, scraped_count=0)
             return 0
+
 
         # Check if sub-partitioning is required
         if total_rows >= self.partition_threshold:
@@ -314,23 +341,40 @@ class LCSCScraper:
             logger.info("Saved %d categories to database.", len(all_cats))
 
         if target_category_id:
-            leaf_cats = [(target_category_id, f"Category #{target_category_id}")]
+            leaf_cats = [(target_category_id, f"Category #{target_category_id}", None)]
         else:
-            leaf_cats = self._find_leaf_categories(cat_tree)
+            logger.info("Fetching catalog list from LCSC API for accurate leaf counts...")
+            catalog_res = self.api.get_catalog_list(instock_only=self.instock_only)
+            catalog_list = catalog_res.get("catalogList") or []
+            if catalog_list:
+                leaf_cats = self._find_leaf_catalogs(catalog_list)
+            else:
+                # Fallback to category tree if catalog_list is empty
+                leaf_cats = [
+                    (cid, path, None) for cid, path in self._find_leaf_categories(cat_tree)
+                ]
 
         logger.info("Starting scrape across %d categories...", len(leaf_cats))
 
         pbar = tqdm(leaf_cats, desc="Categories", unit="cat")
-        for cat_id, cat_path in pbar:
+        for item in pbar:
             if self._should_stop():
                 logger.info("Stopping category processing loop due to signal or duration limit.")
                 break
+            if len(item) == 3:
+                cat_id, cat_path, initial_pnum = item
+            else:
+                cat_id, cat_path = item[:2]
+                initial_pnum = None
+
             self._scrape_category_query(
                 cat_id=cat_id,
                 cat_path=cat_path,
                 max_pages_per_category=max_pages_per_category,
                 pbar=pbar,
+                initial_product_num=initial_pnum,
             )
+
 
         if self._should_stop():
             logger.warning(

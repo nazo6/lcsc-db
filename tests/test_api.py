@@ -85,6 +85,22 @@ def test_query_products_payload_options():
             },
         )
 
+        # Test get_catalog_list
+        api.get_catalog_list(instock_only=True, brand_ids=[100], keyword="resistor")
+        mock_request.assert_called_with(
+            "POST",
+            "/product/catalog/list",
+            json_payload={
+                "isStock": True,
+                "isAsianBrand": False,
+                "isEnvironment": False,
+                "isOtherSuppliers": False,
+                "isDeals": False,
+                "brandIdList": [100],
+                "searchText": "resistor",
+            },
+        )
+
 
 @pytest.mark.integration
 def test_live_get_category_tree():
@@ -95,6 +111,17 @@ def test_live_get_category_tree():
     assert len(tree) > 0
     assert "categoryId" in tree[0]
     assert "categoryNameEn" in tree[0]
+
+
+@pytest.mark.integration
+def test_live_get_catalog_list():
+    """Live API test for fetching catalog list."""
+    api = LCSCApi(delay_seconds=0.5)
+    cat_res = api.get_catalog_list(instock_only=True)
+    assert isinstance(cat_res, dict)
+    assert "catalogList" in cat_res
+    assert len(cat_res["catalogList"]) > 0
+    assert "catalogId" in cat_res["catalogList"][0]
 
 
 @pytest.mark.integration
@@ -114,3 +141,4 @@ def test_live_query_products_options():
     res_group = api.get_param_group(category_ids=51, instock_only=True)
     assert "totalCount" in res_group
     assert res_group["totalCount"] > 0
+

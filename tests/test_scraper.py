@@ -116,6 +116,12 @@ def test_scraper_resume_and_skip(tmp_path):
         {"categoryId": 51, "categoryNameEn": "Resistors", "childrenList": []},
         {"categoryId": 52, "categoryNameEn": "Capacitors", "childrenList": []},
     ])
+    api.get_catalog_list = MagicMock(return_value={
+        "catalogList": [
+            {"catalogId": 51, "catalogNameEn": "Resistors", "productNum": 1, "childCatelogs": []},
+            {"catalogId": 52, "catalogNameEn": "Capacitors", "productNum": 1, "childCatelogs": []},
+        ]
+    })
     api.query_products = MagicMock(return_value={
         "totalRow": 1, "totalPage": 1, "dataList": [{"productId": 501, "productCode": "C501"}]
     })
@@ -148,6 +154,13 @@ def test_scraper_max_duration(tmp_path):
         {"categoryId": 1, "categoryNameEn": "Cat1", "childrenList": []},
         {"categoryId": 2, "categoryNameEn": "Cat2", "childrenList": []},
     ])
+    api.get_catalog_list = MagicMock(return_value={
+        "catalogList": [
+            {"catalogId": 1, "catalogNameEn": "Cat1", "productNum": 1, "childCatelogs": []},
+            {"catalogId": 2, "catalogNameEn": "Cat2", "productNum": 1, "childCatelogs": []},
+        ]
+    })
+
 
     def mock_query(category_ids, **kwargs):
         if category_ids == 2:

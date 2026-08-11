@@ -195,3 +195,42 @@ class LCSCApi:
         if isinstance(res, dict) and res.get("result"):
             return res["result"]
         return {"totalCount": 0}
+
+    def get_catalog_list(
+        self,
+        instock_only: bool = True,
+        brand_ids: Optional[Union[int, List[int]]] = None,
+        keyword: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetch catalog list and pre-calculated product counts from /product/catalog/list.
+
+        Args:
+            instock_only: If True, set isStock=True.
+            brand_ids: Single brand ID or list of brand IDs.
+            keyword: Search keyword text.
+
+        Returns:
+            Dict containing 'catalogList' and 'brandList'.
+        """
+        payload: Dict[str, Any] = {
+            "isStock": instock_only,
+            "isAsianBrand": False,
+            "isEnvironment": False,
+            "isOtherSuppliers": False,
+            "isDeals": False,
+            "searchText": keyword or "",
+        }
+
+        if brand_ids is not None:
+            if isinstance(brand_ids, list):
+                payload["brandIdList"] = brand_ids
+            else:
+                payload["brandIdList"] = [brand_ids]
+        else:
+            payload["brandIdList"] = []
+
+        res = self._request_with_retry("POST", "/product/catalog/list", json_payload=payload)
+        if isinstance(res, dict) and res.get("result"):
+            return res["result"]
+        return {"catalogList": [], "brandList": []}
+
