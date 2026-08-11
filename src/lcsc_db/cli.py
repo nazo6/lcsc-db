@@ -69,6 +69,24 @@ def compress_database(db_path: str) -> str:
     help="Maximum pages to scrape per category (useful for dry runs / testing).",
 )
 @click.option(
+    "--max-duration",
+    type=float,
+    default=None,
+    help="Maximum execution time in seconds (e.g. 19800 for 5.5 hours) before graceful pause.",
+)
+@click.option(
+    "--resume/--no-resume",
+    default=True,
+    show_default=True,
+    help="Resume from previous scrape progress stored in database.",
+)
+@click.option(
+    "--fresh",
+    is_flag=True,
+    default=False,
+    help="Clear previous scrape progress and start a fresh scrape.",
+)
+@click.option(
     "--compress",
     is_flag=True,
     default=False,
@@ -88,6 +106,9 @@ def main(
     enable_fts: bool,
     category_id: Optional[int],
     max_pages: Optional[int],
+    max_duration: Optional[float],
+    resume: bool,
+    fresh: bool,
     compress: bool,
     verbose: bool,
 ) -> None:
@@ -105,6 +126,11 @@ def main(
     click.echo(f"  In-Stock Only   : {instock_only}")
     click.echo(f"  Include Raw JSON: {include_raw_json}")
     click.echo(f"  Build FTS5 Index: {enable_fts}")
+    if max_duration:
+        click.echo(f"  Max Duration    : {max_duration}s")
+    click.echo(f"  Resume Progress : {resume}")
+    if fresh:
+        click.echo("  Fresh Scrape    : True (clearing previous progress)")
     if category_id:
         click.echo(f"  Category Filter : #{category_id}")
     if max_pages:
@@ -119,13 +145,20 @@ def main(
             instock_only=instock_only,
             include_raw_json=include_raw_json,
             enable_fts=enable_fts,
+            max_duration=max_duration,
+            resume=resume,
+            fresh=fresh,
         )
         count = scraper.run(
             target_category_id=category_id,
             max_pages_per_category=max_pages,
         )
+        is_incomplete = db.has_incomplete_progress()
 
-    click.echo(f"Successfully processed {count} products in {db_path}.")
+    if is_incomplete:
+        click.echo(f"Scraping paused ({count} products processed in this run). Resumable state saved in {db_path}.")
+    else:
+        click.echo(f"Successfully processed {count} products in {db_path}.")
 
     if compress:
         compress_database(db_path)

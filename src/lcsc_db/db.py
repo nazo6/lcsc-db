@@ -129,6 +129,29 @@ class LCSCDatabase:
                     """
                 )
 
+            # Scrape progress tracking tables
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scrape_progress (
+                    category_id INTEGER NOT NULL,
+                    brand_id INTEGER NOT NULL DEFAULT 0,
+                    keyword TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'completed',
+                    total_rows INTEGER DEFAULT 0,
+                    scraped_count INTEGER DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (category_id, brand_id, keyword)
+                );
+                """
+            )
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scraped_seen_products (
+                    product_id INTEGER PRIMARY KEY
+                );
+                """
+            )
+
     def upsert_categories(self, categories_list: List[Dict[str, Any]]) -> None:
         """Insert or update categories."""
         query = """
@@ -322,3 +345,89 @@ class LCSCDatabase:
         """Optimize and vacuum database."""
         self.conn.execute("PRAGMA optimize;")
         self.conn.execute("VACUUM;")
+
+    def is_query_completed(
+        self,
+        category_id: int,
+        brand_id: Optional[int] = None,
+        keyword: Optional[str] = None,
+    ) -> bool:
+        """Check if a specific category query has been completed in the current scrape pass."""
+        b_id = brand_id or 0
+        kw = keyword or ""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT 1 FROM scrape_progress
+            WHERE category_id = ? AND brand_id = ? AND keyword = ? AND status = 'completed';
+            """,
+            (category_id, b_id, kw),
+        )
+        return cursor.fetchone() is not None
+
+    def mark_query_completed(
+        self,
+        category_id: int,
+        brand_id: Optional[int] = None,
+        keyword: Optional[str] = None,
+        total_rows: int = 0,
+        scraped_count: int = 0,
+    ) -> None:
+        """Mark a category query as completed in scrape_progress."""
+        b_id = brand_id or 0
+        kw = keyword or ""
+        query = """
+        INSERT INTO scrape_progress (category_id, brand_id, keyword, status, total_rows, scraped_count, updated_at)
+        VALUES (?, ?, ?, 'completed', ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(category_id, brand_id, keyword) DO UPDATE SET
+            status = 'completed',
+            total_rows = excluded.total_rows,
+            scraped_count = excluded.scraped_count,
+            updated_at = CURRENT_TIMESTAMP;
+        """
+        with self.conn:
+            self.conn.execute(query, (category_id, b_id, kw, total_rows, scraped_count))
+
+    def record_seen_products(self, product_ids: Set[int]) -> None:
+        """Record product IDs as seen during the current scrape pass."""
+        if not product_ids:
+            return
+        rows = [(pid,) for pid in product_ids]
+        with self.conn:
+            self.conn.executemany(
+                "INSERT OR IGNORE INTO scraped_seen_products (product_id) VALUES (?);", rows
+            )
+
+    def has_incomplete_progress(self) -> bool:
+        """Check if there is active in-progress scrape data in progress tables."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='scrape_progress';")
+        if not cursor.fetchone():
+            return False
+        cursor.execute("SELECT COUNT(*) FROM scrape_progress;")
+        return cursor.fetchone()[0] > 0
+
+    def clear_scrape_progress(self) -> None:
+        """Clear all scrape progress and seen products tables after a full scrape cycle finishes."""
+        with self.conn:
+            self.conn.execute("DELETE FROM scrape_progress;")
+            self.conn.execute("DELETE FROM scraped_seen_products;")
+
+    def mark_unseen_stock_zero_from_db(self) -> int:
+        """Mark products stock as 0 if they were not seen in the current multi-stage scrape run."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM scraped_seen_products;")
+        seen_count = cursor.fetchone()[0]
+        if seen_count == 0:
+            return 0
+
+        with self.conn:
+            cursor = self.conn.execute(
+                """
+                UPDATE products
+                SET stock = 0, stock_sz = 0, stock_js = 0, stock_hk = 0
+                WHERE product_id NOT IN (SELECT product_id FROM scraped_seen_products);
+                """
+            )
+            return cursor.rowcount
+

@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
 
     steps:
       - name: Checkout repository
@@ -56,7 +57,7 @@ jobs:
           fi
           DELAY="${{ github.event.inputs.delay_seconds || '2.0' }}"
 
-          uv run lcsc-db --db-path lcsc.sqlite3 --delay "$DELAY" $INSTOCK_FLAG --include-raw-json --enable-fts --compress
+          uv run lcsc-db --db-path lcsc.sqlite3 --delay "$DELAY" $INSTOCK_FLAG --max-duration 19800 --include-raw-json --enable-fts --compress
 
       - name: Upload Database Artifact
         uses: actions/upload-artifact@v7
@@ -85,3 +86,20 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if scraping incomplete & trigger continuation workflow
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'schedule'
+        run: |
+          IS_INCOMPLETE=$(uv run python -c "
+          from lcsc_db.db import LCSCDatabase
+          with LCSCDatabase('lcsc.sqlite3') as db:
+              print('true' if db.has_incomplete_progress() else 'false')
+          ")
+          if [ "$IS_INCOMPLETE" = "true" ]; then
+            echo "::warning::Scraping was paused due to max execution duration. Triggering continuation workflow run..."
+            gh workflow run update_database.yml
+          else
+            echo "Scraping completed fully across all categories."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -13,6 +13,9 @@ def test_cli_help():
     assert "--instock-only" in result.output
     assert "--include-raw-json" in result.output
     assert "--enable-fts" in result.output
+    assert "--max-duration" in result.output
+    assert "--resume" in result.output
+    assert "--fresh" in result.output
 
 
 def test_cli_dry_run(tmp_path):
@@ -29,6 +32,8 @@ def test_cli_dry_run(tmp_path):
             "1",
             "--delay",
             "0.1",
+            "--max-duration",
+            "60",
             "--compress",
         ],
     )
@@ -37,3 +42,4 @@ def test_cli_dry_run(tmp_path):
     assert "Successfully processed" in result.output
     assert db_file.exists()
     assert (tmp_path / "cli_test.sqlite3.tar.gz").exists()
+

@@ -103,3 +103,68 @@ def test_scraper_keyword_fallback_and_warning(tmp_path, caplog):
     assert count > 0
 
     db.close()
+
+
+def test_scraper_resume_and_skip(tmp_path):
+    """Test that completed queries are skipped when resume=True."""
+    db_file = tmp_path / "test_resume.sqlite3"
+    api = LCSCApi(delay_seconds=0.0)
+    db = LCSCDatabase(str(db_file))
+    db.init_schema()
+
+    api.get_category_tree = MagicMock(return_value=[
+        {"categoryId": 51, "categoryNameEn": "Resistors", "childrenList": []},
+        {"categoryId": 52, "categoryNameEn": "Capacitors", "childrenList": []},
+    ])
+    api.query_products = MagicMock(return_value={
+        "totalRow": 1, "totalPage": 1, "dataList": [{"productId": 501, "productCode": "C501"}]
+    })
+
+    # Pre-mark Category 51 as completed in DB
+    db.mark_query_completed(51, brand_id=0, keyword="", total_rows=1, scraped_count=1)
+
+    scraper = LCSCScraper(api=api, db=db, resume=True)
+
+    # Run scraper - should skip Cat 51 and process only Cat 52
+    count = scraper.run()
+
+    # Category 51 was skipped, Cat 52 was scraped
+    assert count == 1
+    assert api.query_products.call_count == 1
+    # Verify query_products was called with category_ids=52
+    assert api.query_products.call_args[1]["category_ids"] == 52
+
+    db.close()
+
+
+def test_scraper_max_duration(tmp_path):
+    """Test that max_duration stops scraping gracefully and retains progress."""
+    import time
+    db_file = tmp_path / "test_duration.sqlite3"
+    api = LCSCApi(delay_seconds=0.0)
+    db = LCSCDatabase(str(db_file))
+
+    api.get_category_tree = MagicMock(return_value=[
+        {"categoryId": 1, "categoryNameEn": "Cat1", "childrenList": []},
+        {"categoryId": 2, "categoryNameEn": "Cat2", "childrenList": []},
+    ])
+
+    def mock_query(category_ids, **kwargs):
+        if category_ids == 2:
+            time.sleep(0.05)
+        return {"totalRow": 1, "totalPage": 1, "dataList": [{"productId": 900 + category_ids, "productCode": f"C{category_ids}"}]}
+
+    api.query_products = MagicMock(side_effect=mock_query)
+
+    scraper = LCSCScraper(api=api, db=db, max_duration=0.02, resume=True)
+
+    count = scraper.run()
+    assert scraper.time_limit_reached is True
+    assert db.has_incomplete_progress()
+    assert db.is_query_completed(1, 0, "")
+    assert not db.is_query_completed(2, 0, "")
+
+    db.close()
+
+
+
