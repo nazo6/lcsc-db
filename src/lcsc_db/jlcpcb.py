@@ -155,10 +155,9 @@ def import_cache_db(
             LEFT JOIN cache_db.categories cat ON cat.id = c.category_id
             LEFT JOIN cache_db.manufacturers m ON m.id = c.manufacturer_id
             WHERE 1
-            ON CONFLICT(product_id) DO UPDATE SET
-                lcsc_number = excluded.lcsc_number,
+            ON CONFLICT(lcsc_number) DO UPDATE SET
                 mfr_part_number = excluded.mfr_part_number,
-                brand_id = excluded.brand_id,
+                brand_id = COALESCE(products.brand_id, excluded.brand_id),
                 brand_name = COALESCE(products.brand_name, excluded.brand_name),
                 package = COALESCE(products.package, excluded.package),
                 description = COALESCE(products.description, excluded.description),

@@ -111,7 +111,7 @@ class LCSCDatabase:
 
         insert_stmt = sqlite_insert(ProductRecord)
         stmt = insert_stmt.on_conflict_do_update(
-            index_elements=[col(ProductRecord.product_id)],
+            index_elements=[col(ProductRecord.lcsc_number)],
             set_={
                 **{c: getattr(insert_stmt.excluded, c) for c in update_cols},
                 "last_updated": text("CURRENT_TIMESTAMP"),
