@@ -1,11 +1,13 @@
 """Unit tests for LCSCDatabase handling SQLite storage, lossless raw_json, and FTS5 search."""
 
 import json
-import sqlite3
+
 import pytest
+from sqlmodel import Session, select, text
 
 from lcsc_db.db import LCSCDatabase
 from lcsc_db.models import Product
+from lcsc_db.schema import ProductRecord, ScrapedSeenProductRecord
 
 
 @pytest.fixture
@@ -16,39 +18,45 @@ def temp_db(tmp_path):
     db.close()
 
 
-def test_db_schema_options(temp_db):
-    # Test with include_raw_json=True and enable_fts=True
-    temp_db.init_schema(include_raw_json=True, enable_fts=True)
+def _table_columns(db, table_name):
+    with db.engine.connect() as conn:
+        return [row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table_name});")]
 
-    cursor = temp_db.conn.cursor()
-    cursor.execute("PRAGMA table_info(products);")
-    cols = [row[1] for row in cursor.fetchall()]
+
+def test_db_schema_options(temp_db):
+    temp_db.init_schema(enable_fts=True)
+
+    cols = _table_columns(temp_db, "products")
     assert "raw_json" in cols
     assert "moq" in cols
     assert "spq" in cols
     assert "stock_sz" in cols
 
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='products_fts';")
-    assert cursor.fetchone() is not None
+    with temp_db.engine.connect() as conn:
+        fts = conn.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='products_fts';"
+        ).first()
+    assert fts is not None
 
 
-def test_db_schema_without_raw_json(tmp_path):
+def test_db_schema_without_fts(tmp_path):
     db_file = tmp_path / "test_no_raw.sqlite3"
     db = LCSCDatabase(str(db_file))
-    db.init_schema(include_raw_json=False, enable_fts=False)
+    db.init_schema(enable_fts=False)
 
-    cursor = db.conn.cursor()
-    cursor.execute("PRAGMA table_info(products);")
-    cols = [row[1] for row in cursor.fetchall()]
-    assert "raw_json" not in cols
+    cols = _table_columns(db, "products")
+    assert "raw_json" in cols
 
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='products_fts';")
-    assert cursor.fetchone() is None
+    with db.engine.connect() as conn:
+        fts = conn.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='products_fts';"
+        ).first()
+    assert fts is None
     db.close()
 
 
 def test_upsert_products_lossless_and_fts(temp_db):
-    temp_db.init_schema(include_raw_json=True, enable_fts=True)
+    temp_db.init_schema(enable_fts=True)
 
     sample_product = {
         "productId": 107087,
@@ -79,24 +87,39 @@ def test_upsert_products_lossless_and_fts(temp_db):
     temp_db.upsert_products([Product.model_validate(sample_product)], include_raw_json=True)
     temp_db.rebuild_fts()
 
-    cursor = temp_db.conn.cursor()
-    cursor.execute("SELECT * FROM products WHERE product_id = 107087;")
-    row = cursor.fetchone()
-    assert row is not None
-    assert row["lcsc_number"] == "C105872"
-    assert row["mfr_part_number"] == "RC0402FR-075K1L"
-    assert row["moq"] == 100
-    assert row["spq"] == 100
+    with Session(temp_db.engine) as session:
+        row = session.exec(
+            select(ProductRecord).where(ProductRecord.product_id == 107087)
+        ).one()
+    assert row.lcsc_number == "C105872"
+    assert row.mfr_part_number == "RC0402FR-075K1L"
+    assert row.moq == 100
+    assert row.spq == 100
 
-    raw_json_data = json.loads(row["raw_json"])
+    raw_json_data = json.loads(row.raw_json)
     assert raw_json_data["productId"] == 107087
     assert raw_json_data["productCode"] == "C105872"
 
     # Test FTS5 Search
-    cursor.execute("SELECT * FROM products_fts WHERE products_fts MATCH 'RC0402FR';")
-    fts_row = cursor.fetchone()
+    with Session(temp_db.engine) as session:
+        fts_row = session.execute(
+            text("SELECT * FROM products_fts WHERE products_fts MATCH 'RC0402FR';")
+        ).first()
     assert fts_row is not None
-    assert fts_row["lcsc_number"] == "C105872"
+    assert fts_row[0] == "C105872"
+
+
+def test_raw_json_null_when_disabled(temp_db):
+    temp_db.init_schema()
+
+    p = {"productId": 201, "productCode": "C201", "productModel": "M201"}
+    temp_db.upsert_products([Product.model_validate(p)], include_raw_json=False)
+
+    with Session(temp_db.engine) as session:
+        row = session.exec(
+            select(ProductRecord).where(ProductRecord.product_id == 201)
+        ).one()
+    assert row.raw_json is None
 
 
 def test_db_progress_tracking(temp_db):
@@ -110,9 +133,9 @@ def test_db_progress_tracking(temp_db):
     assert temp_db.has_incomplete_progress()
 
     temp_db.record_seen_products({1001, 1002})
-    cursor = temp_db.conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM scraped_seen_products;")
-    assert cursor.fetchone()[0] == 2
+    with Session(temp_db.engine) as session:
+        seen = session.exec(select(ScrapedSeenProductRecord)).all()
+    assert len(seen) == 2
 
     temp_db.clear_scrape_progress()
     assert not temp_db.has_incomplete_progress()
@@ -131,10 +154,12 @@ def test_mark_unseen_stock_zero_from_db(temp_db):
     updated_rows = temp_db.mark_unseen_stock_zero_from_db()
     assert updated_rows == 1
 
-    cursor = temp_db.conn.cursor()
-    cursor.execute("SELECT stock FROM products WHERE product_id = 101;")
-    assert cursor.fetchone()["stock"] == 50
-
-    cursor.execute("SELECT stock FROM products WHERE product_id = 102;")
-    assert cursor.fetchone()["stock"] == 0
-
+    with Session(temp_db.engine) as session:
+        stock_101 = session.exec(
+            select(ProductRecord.stock).where(ProductRecord.product_id == 101)
+        ).one()
+        stock_102 = session.exec(
+            select(ProductRecord.stock).where(ProductRecord.product_id == 102)
+        ).one()
+    assert stock_101 == 50
+    assert stock_102 == 0

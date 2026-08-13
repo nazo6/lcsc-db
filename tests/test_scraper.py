@@ -3,6 +3,8 @@
 import pytest
 from unittest.mock import MagicMock
 
+from sqlmodel import Session, func, select
+
 from lcsc_db.api import LCSCApi, LCSCApiConfig
 from lcsc_db.db import LCSCDatabase
 from lcsc_db.models import (
@@ -12,6 +14,7 @@ from lcsc_db.models import (
     Product,
     ProductQueryResult,
 )
+from lcsc_db.schema import ProductRecord
 from lcsc_db.scraper import LCSCScraper, ScraperConfig
 
 
@@ -34,9 +37,8 @@ def test_scraper_options_and_run(tmp_path):
     count = scraper.run(target_category_id=51, max_pages_per_category=1)
     assert count >= 0
 
-    cursor = db.conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM products;")
-    total_in_db = cursor.fetchone()[0]
+    with Session(db.engine) as session:
+        total_in_db = session.execute(select(func.count()).select_from(ProductRecord)).scalar()
     assert total_in_db == count
 
     db.close()

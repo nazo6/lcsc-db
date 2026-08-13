@@ -8,10 +8,12 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.14",
     "pydantic>=2.10",
     "pydantic-settings>=2.9",
     "pytest>=9.1.1",
     "requests>=2.34.2",
+    "sqlmodel>=0.0.29",
     "tqdm>=4.70.0",
 ]
 

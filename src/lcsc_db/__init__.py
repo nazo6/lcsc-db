@@ -13,12 +13,22 @@ from lcsc_db.models import (
     ProductParam,
     ProductQueryResult,
 )
+from lcsc_db.schema import (
+    CategoryRecord,
+    FTS_DDL,
+    ProductParamRecord,
+    ProductRecord,
+    ScrapeProgressRecord,
+    ScrapedSeenProductRecord,
+)
 from lcsc_db.scraper import LCSCScraper, ScraperConfig
 
 __all__ = [
     "CatalogEntry",
     "CatalogListResult",
     "Category",
+    "CategoryRecord",
+    "FTS_DDL",
     "LCSCApi",
     "LCSCApiConfig",
     "LCSCApiError",
@@ -29,7 +39,11 @@ __all__ = [
     "PriceLadder",
     "Product",
     "ProductParam",
+    "ProductParamRecord",
     "ProductQueryResult",
+    "ProductRecord",
+    "ScrapeProgressRecord",
+    "ScrapedSeenProductRecord",
     "ScraperConfig",
 ]
 __version__ = "0.1.0"

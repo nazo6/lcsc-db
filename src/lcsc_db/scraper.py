@@ -332,9 +332,7 @@ class LCSCScraper:
         self.start_time = time.time()
 
         logger.info("Initializing database schema...")
-        self.db.init_schema(
-            include_raw_json=self.include_raw_json, enable_fts=self.enable_fts
-        )
+        self.db.init_schema(enable_fts=self.enable_fts)
 
         if self.fresh:
             logger.info("Fresh flag set. Clearing previous scrape progress...")

@@ -53,7 +53,7 @@ jobs:
         run: |
           INSTOCK_FLAG="--instock-only"
           if [ "${{ github.event.inputs.instock_only }}" = "false" ]; then
-            INSTOCK_FLAG="--all-parts"
+            INSTOCK_FLAG="--no-instock-only"
           fi
           DELAY="${{ github.event.inputs.delay_seconds || '2.0' }}"
 
