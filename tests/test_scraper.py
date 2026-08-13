@@ -38,7 +38,7 @@ def test_scraper_options_and_run(tmp_path):
     assert count >= 0
 
     with Session(db.engine) as session:
-        total_in_db = session.execute(select(func.count()).select_from(ProductRecord)).scalar()
+        total_in_db = session.exec(select(func.count()).select_from(ProductRecord)).one()
     assert total_in_db == count
 
     db.close()

@@ -3,11 +3,11 @@
 import logging
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Set, cast
+from typing import Optional, Set
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import CursorResult, delete, func, inspect, text, update
+from sqlalchemy import delete, func, inspect, text, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, col, create_engine, select
 
@@ -96,7 +96,7 @@ class LCSCDatabase:
         rows = [CategoryRecord.from_category(cat) for cat in categories_list]
         with self._tx() as session:
             if rows:
-                session.execute(stmt, [r.model_dump() for r in rows])
+                session.exec(stmt, params=[r.model_dump() for r in rows])
 
     def upsert_products(
         self, products: list[Product], include_raw_json: bool = True
@@ -147,24 +147,26 @@ class LCSCDatabase:
 
         with self._tx() as session:
             if product_records:
-                session.execute(stmt, [r.model_dump() for r in product_records])
+                session.exec(stmt, params=[r.model_dump() for r in product_records])
 
                 # Refresh parameters for inserted products
                 pids = [r.product_id for r in product_records]
-                session.execute(
+                session.exec(
                     delete(ProductParamRecord).where(
                         col(ProductParamRecord.product_id).in_(pids)
                     )
                 )
                 if param_rows:
-                    session.execute(sqlite_insert(ProductParamRecord), param_rows)
+                    session.exec(sqlite_insert(ProductParamRecord), params=param_rows)
 
     def rebuild_fts(self) -> None:
         """Rebuild FTS5 index for full-text search."""
         if not self._has_table("products_fts"):
             return
         with self._tx() as session:
-            session.execute(text("INSERT INTO products_fts(products_fts) VALUES('rebuild');"))
+            session.connection().execute(
+                text("INSERT INTO products_fts(products_fts) VALUES('rebuild');")
+            )
 
     def vacuum_and_optimize(self) -> None:
         """Optimize and vacuum database."""
@@ -216,9 +218,9 @@ class LCSCDatabase:
             },
         )
         with self._tx() as session:
-            session.execute(
+            session.exec(
                 stmt,
-                [
+                params=[
                     {
                         "category_id": category_id,
                         "brand_id": b_id,
@@ -239,7 +241,7 @@ class LCSCDatabase:
         )
         rows = [{"product_id": pid} for pid in product_ids]
         with self._tx() as session:
-            session.execute(stmt, rows)
+            session.exec(stmt, params=rows)
 
     def has_incomplete_progress(self) -> bool:
         """Check if there is active in-progress scrape data in progress tables."""
@@ -247,19 +249,19 @@ class LCSCDatabase:
             return False
         stmt = select(func.count()).select_from(ScrapeProgressRecord)
         with Session(self.engine) as session:
-            return (session.execute(stmt).scalar() or 0) > 0
+            return session.exec(stmt).one() > 0
 
     def clear_scrape_progress(self) -> None:
         """Clear all scrape progress and seen products tables after a full scrape cycle finishes."""
         with self._tx() as session:
-            session.execute(delete(ScrapeProgressRecord))
-            session.execute(delete(ScrapedSeenProductRecord))
+            session.exec(delete(ScrapeProgressRecord))
+            session.exec(delete(ScrapedSeenProductRecord))
 
     def mark_unseen_stock_zero_from_db(self) -> int:
         """Mark products stock as 0 if they were not seen in the current multi-stage scrape run."""
         stmt = select(func.count()).select_from(ScrapedSeenProductRecord)
         with Session(self.engine) as session:
-            seen_count = session.execute(stmt).scalar() or 0
+            seen_count = session.exec(stmt).one() or 0
         if seen_count == 0:
             return 0
 
@@ -270,5 +272,5 @@ class LCSCDatabase:
             .values(stock=0, stock_sz=0, stock_js=0, stock_hk=0)
         )
         with self._tx() as session:
-            result = cast(CursorResult, session.execute(update_stmt))
+            result = session.exec(update_stmt)
             return result.rowcount or 0

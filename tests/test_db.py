@@ -103,7 +103,7 @@ def test_upsert_products_lossless_and_fts(temp_db):
 
     # Test FTS5 Search
     with Session(temp_db.engine) as session:
-        fts_row = session.execute(
+        fts_row = session.connection().execute(
             text("SELECT * FROM products_fts WHERE products_fts MATCH 'RC0402FR';")
         ).first()
     assert fts_row is not None
