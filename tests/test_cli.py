@@ -47,3 +47,36 @@ def test_cli_scrape_dry_run(tmp_path, capsys, monkeypatch):
     assert "Successfully processed" in out
     assert db_file.exists()
     assert (tmp_path / "cli_test.sqlite3.tar.gz").exists()
+
+
+def test_compress_database_fast_and_fallback(tmp_path, monkeypatch):
+    from lcsc_db.cli import compress_database
+    import tarfile
+
+    # 1. Test standard/fast path
+    db_file1 = tmp_path / "sample1.sqlite3"
+    db_file1.write_bytes(b"SQLite format 3\x00test content 12345")
+    archive1 = compress_database(str(db_file1))
+    assert (tmp_path / "sample1.sqlite3.tar.gz").exists()
+
+    with tarfile.open(archive1, "r:gz") as tar:
+        names = tar.getnames()
+        assert "sample1.sqlite3" in names
+        f = tar.extractfile("sample1.sqlite3")
+        assert f is not None
+        assert f.read() == b"SQLite format 3\x00test content 12345"
+
+    # 2. Test fallback path (mocking shutil.which to return None)
+    db_file2 = tmp_path / "sample2.sqlite3"
+    db_file2.write_bytes(b"SQLite format 3\x00fallback test content")
+    monkeypatch.setattr("shutil.which", lambda prog: None)
+
+    archive2 = compress_database(str(db_file2))
+    assert (tmp_path / "sample2.sqlite3.tar.gz").exists()
+
+    with tarfile.open(archive2, "r:gz") as tar:
+        names = tar.getnames()
+        assert "sample2.sqlite3" in names
+        f = tar.extractfile("sample2.sqlite3")
+        assert f is not None
+        assert f.read() == b"SQLite format 3\x00fallback test content"

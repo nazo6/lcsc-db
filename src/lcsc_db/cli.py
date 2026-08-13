@@ -3,6 +3,8 @@
 import argparse
 import logging
 import os
+import shutil
+import subprocess
 import sys
 import tarfile
 from pathlib import Path
@@ -14,11 +16,33 @@ from lcsc_db.scraper import LCSCScraper, ScraperConfig
 
 
 def compress_database(db_path: str) -> str:
-    """Compress database file to .tar.gz archive."""
+    """Compress database file to .tar.gz archive using pigz/tar if available, falling back to tarfile."""
     archive_path = f"{db_path}.tar.gz"
     print(f"Compressing {db_path} -> {archive_path}...")
-    with tarfile.open(archive_path, "w:gz") as tar:
-        tar.add(db_path, arcname=os.path.basename(db_path))
+
+    db_path_obj = Path(db_path)
+    parent_dir = db_path_obj.parent if db_path_obj.parent != Path("") else Path(".")
+    filename = db_path_obj.name
+    archive_path_obj = Path(archive_path).resolve()
+
+    compressed_fast = False
+    if shutil.which("tar") is not None:
+        try:
+            cmd = ["tar"]
+            if shutil.which("pigz") is not None:
+                cmd.extend(["-I", "pigz", "-cf", str(archive_path_obj), filename])
+            else:
+                cmd.extend(["-czf", str(archive_path_obj), filename])
+            subprocess.run(cmd, cwd=str(parent_dir), check=True, capture_output=True)
+            compressed_fast = True
+        except Exception as e:
+            logging.debug("Fast tar compression failed, falling back to python tarfile: %s", e)
+            compressed_fast = False
+
+    if not compressed_fast:
+        with tarfile.open(archive_path, "w:gz") as tar:
+            tar.add(db_path, arcname=os.path.basename(db_path))
+
     size_mb = os.path.getsize(archive_path) / (1024 * 1024)
     print(f"Compressed archive created: {archive_path} ({size_mb:.2f} MB)")
     return archive_path

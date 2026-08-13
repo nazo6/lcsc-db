@@ -34,6 +34,11 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install system dependencies (pigz for parallel compression)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pigz
+
       - name: Install dependencies
         run: uv sync
 
@@ -43,7 +48,7 @@ jobs:
           gh release download latest -p "lcsc_only.sqlite3.tar.gz" || true
           if [ -f "lcsc_only.sqlite3.tar.gz" ]; then
             echo "Found existing LCSC-only database release archive. Decompressing..."
-            tar -xzf lcsc_only.sqlite3.tar.gz
+            tar -I pigz -xf lcsc_only.sqlite3.tar.gz || tar -xzf lcsc_only.sqlite3.tar.gz
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -58,18 +63,10 @@ jobs:
 
           uv run lcsc-db scrape-lcsc --db-path lcsc_only.sqlite3 --delay "$DELAY" $INSTOCK_FLAG --include-raw-json --enable-fts --compress
 
-      - name: Benchmark DB 2 (LCSC Only Variants Size)
-        run: |
-          uv run python scripts/benchmark_variants.py --db-path lcsc_only.sqlite3 --label "LCSC Only (DB 2)" --output-markdown "$GITHUB_STEP_SUMMARY"
-
       - name: "[Phase 2/2] Sync JLCPCB Component Database (Generate DB 1: JLCPCB Integrated)"
         run: |
           cp lcsc_only.sqlite3 lcsc.sqlite3
           uv run lcsc-db sync-jlcpcb --db-path lcsc.sqlite3 --enable-fts --compress
-
-      - name: Benchmark DB 1 (JLCPCB Integrated Variants Size)
-        run: |
-          uv run python scripts/benchmark_variants.py --db-path lcsc.sqlite3 --label "JLCPCB Integrated (DB 1)" --output-markdown "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Database Artifacts
         uses: actions/upload-artifact@v7
