@@ -28,7 +28,10 @@ def run_migrations_online() -> None:
     """Run migrations in 'online' mode against a live connection."""
     from sqlalchemy import create_engine
 
-    connectable = create_engine(config.get_main_option("sqlalchemy.url"))
+    database_url = config.get_main_option("sqlalchemy.url")
+    if database_url is None:
+        raise RuntimeError("sqlalchemy.url is not set in alembic configuration")
+    connectable = create_engine(database_url)
 
     with connectable.connect() as connection:
         context.configure(

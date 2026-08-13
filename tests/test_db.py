@@ -96,6 +96,7 @@ def test_upsert_products_lossless_and_fts(temp_db):
     assert row.moq == 100
     assert row.spq == 100
 
+    assert row.raw_json is not None
     raw_json_data = json.loads(row.raw_json)
     assert raw_json_data["productId"] == 107087
     assert raw_json_data["productCode"] == "C105872"

@@ -7,7 +7,7 @@ import time
 from typing import Any, Optional, Set, Tuple
 
 from pydantic import BaseModel
-from tqdm import tqdm
+from tqdm import tqdm  # pyrefly: ignore[untyped-import]
 
 from lcsc_db.api import LCSCApi
 from lcsc_db.db import LCSCDatabase
@@ -196,7 +196,7 @@ class LCSCScraper:
                     for m in mfrs:
                         if self._should_stop():
                             break
-                        m_id = int(m.id)
+                        m_id = m.id
                         m_name = m.name or str(m_id)
                         count += self._scrape_category_query(
                             cat_id=cat_id,

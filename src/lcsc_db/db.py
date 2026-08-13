@@ -3,13 +3,13 @@
 import logging
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Set
+from typing import Optional, Set, cast
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import delete, func, inspect, select, text, update
+from sqlalchemy import CursorResult, delete, func, inspect, text, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlmodel import Session, create_engine
+from sqlmodel import Session, col, create_engine, select
 
 from lcsc_db.models import Category, Product
 from lcsc_db.schema import (
@@ -90,7 +90,7 @@ class LCSCDatabase:
         update_cols = [c for c in CategoryRecord.model_fields if c != "id"]
         insert_stmt = sqlite_insert(CategoryRecord)
         stmt = insert_stmt.on_conflict_do_update(
-            index_elements=[CategoryRecord.id],
+            index_elements=[col(CategoryRecord.id)],
             set_={c: getattr(insert_stmt.excluded, c) for c in update_cols},
         )
         rows = [CategoryRecord.from_category(cat) for cat in categories_list]
@@ -119,7 +119,7 @@ class LCSCDatabase:
 
         insert_stmt = sqlite_insert(ProductRecord)
         stmt = insert_stmt.on_conflict_do_update(
-            index_elements=[ProductRecord.product_id],
+            index_elements=[col(ProductRecord.product_id)],
             set_={
                 **{c: getattr(insert_stmt.excluded, c) for c in update_cols},
                 "last_updated": text("CURRENT_TIMESTAMP"),
@@ -140,8 +140,8 @@ class LCSCDatabase:
                     param_rows.append(
                         {
                             "product_id": record.product_id,
-                            "param_name": str(param.name),
-                            "param_value": str(param.value),
+                            "param_name": param.name,
+                            "param_value": param.value,
                         }
                     )
 
@@ -152,7 +152,9 @@ class LCSCDatabase:
                 # Refresh parameters for inserted products
                 pids = [r.product_id for r in product_records]
                 session.execute(
-                    delete(ProductParamRecord).where(ProductParamRecord.product_id.in_(pids))
+                    delete(ProductParamRecord).where(
+                        col(ProductParamRecord.product_id).in_(pids)
+                    )
                 )
                 if param_rows:
                     session.execute(sqlite_insert(ProductParamRecord), param_rows)
@@ -180,10 +182,10 @@ class LCSCDatabase:
         b_id = brand_id or 0
         kw = keyword or ""
         stmt = select(ScrapeProgressRecord).where(
-            ScrapeProgressRecord.category_id == category_id,
-            ScrapeProgressRecord.brand_id == b_id,
-            ScrapeProgressRecord.keyword == kw,
-            ScrapeProgressRecord.status == "completed",
+            col(ScrapeProgressRecord.category_id) == category_id,
+            col(ScrapeProgressRecord.brand_id) == b_id,
+            col(ScrapeProgressRecord.keyword) == kw,
+            col(ScrapeProgressRecord.status) == "completed",
         )
         with Session(self.engine) as session:
             return session.exec(stmt).first() is not None
@@ -202,9 +204,9 @@ class LCSCDatabase:
         insert_stmt = sqlite_insert(ScrapeProgressRecord)
         stmt = insert_stmt.on_conflict_do_update(
             index_elements=[
-                ScrapeProgressRecord.category_id,
-                ScrapeProgressRecord.brand_id,
-                ScrapeProgressRecord.keyword,
+                col(ScrapeProgressRecord.category_id),
+                col(ScrapeProgressRecord.brand_id),
+                col(ScrapeProgressRecord.keyword),
             ],
             set_={
                 "status": "completed",
@@ -233,7 +235,7 @@ class LCSCDatabase:
         if not product_ids:
             return
         stmt = sqlite_insert(ScrapedSeenProductRecord).on_conflict_do_nothing(
-            index_elements=[ScrapedSeenProductRecord.product_id]
+            index_elements=[col(ScrapedSeenProductRecord.product_id)]
         )
         rows = [{"product_id": pid} for pid in product_ids]
         with self._tx() as session:
@@ -245,7 +247,7 @@ class LCSCDatabase:
             return False
         stmt = select(func.count()).select_from(ScrapeProgressRecord)
         with Session(self.engine) as session:
-            return session.execute(stmt).scalar() > 0
+            return (session.execute(stmt).scalar() or 0) > 0
 
     def clear_scrape_progress(self) -> None:
         """Clear all scrape progress and seen products tables after a full scrape cycle finishes."""
@@ -261,12 +263,12 @@ class LCSCDatabase:
         if seen_count == 0:
             return 0
 
-        subq = select(ScrapedSeenProductRecord.product_id)
+        subq = select(col(ScrapedSeenProductRecord.product_id))
         update_stmt = (
             update(ProductRecord)
-            .where(ProductRecord.product_id.notin_(subq))
+            .where(col(ProductRecord.product_id).notin_(subq))
             .values(stock=0, stock_sz=0, stock_js=0, stock_hk=0)
         )
         with self._tx() as session:
-            result = session.execute(update_stmt)
+            result = cast(CursorResult, session.execute(update_stmt))
             return result.rowcount or 0

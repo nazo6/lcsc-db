@@ -16,7 +16,7 @@ from lcsc_db.models import Category, Product
 
 
 class CategoryRecord(SQLModel, table=True):
-    __tablename__ = "categories"
+    __tablename__ = "categories"  # pyrefly: ignore[bad-override]
 
     id: int | None = Field(default=None, primary_key=True)
     parent_id: int | None = None
@@ -37,7 +37,7 @@ class CategoryRecord(SQLModel, table=True):
 
 
 class ProductRecord(SQLModel, table=True):
-    __tablename__ = "products"
+    __tablename__ = "products"  # pyrefly: ignore[bad-override]
 
     product_id: int | None = Field(default=None, primary_key=True)
     lcsc_number: str = Field(unique=True, index=True)
@@ -125,7 +125,7 @@ class ProductRecord(SQLModel, table=True):
             "is_rohs": 1 if product.is_rohs else 0,
             "is_hot": 1 if product.is_hot else 0,
             "is_reel": 1 if product.is_reel else 0,
-            "reel_price": float(product.reel_price or 0.0),
+            "reel_price": product.reel_price or 0.0,
             "is_sample": 1 if product.is_sample else 0,
             "is_discount": 1 if product.is_discount else 0,
             "is_pre_sale": 1 if product.is_pre_sale else 0,
@@ -139,7 +139,7 @@ class ProductRecord(SQLModel, table=True):
 
 
 class ProductParamRecord(SQLModel, table=True):
-    __tablename__ = "product_params"
+    __tablename__ = "product_params"  # pyrefly: ignore[bad-override]
 
     id: int | None = Field(default=None, primary_key=True)
     product_id: int | None = Field(default=None, foreign_key="products.product_id", index=True)
@@ -148,7 +148,7 @@ class ProductParamRecord(SQLModel, table=True):
 
 
 class ScrapeProgressRecord(SQLModel, table=True):
-    __tablename__ = "scrape_progress"
+    __tablename__ = "scrape_progress"  # pyrefly: ignore[bad-override]
 
     category_id: int = Field(primary_key=True)
     brand_id: int = Field(default=0, primary_key=True)
@@ -163,7 +163,7 @@ class ScrapeProgressRecord(SQLModel, table=True):
 
 
 class ScrapedSeenProductRecord(SQLModel, table=True):
-    __tablename__ = "scraped_seen_products"
+    __tablename__ = "scraped_seen_products"  # pyrefly: ignore[bad-override]
 
     product_id: int = Field(primary_key=True)
 
