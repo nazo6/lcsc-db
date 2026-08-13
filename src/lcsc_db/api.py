@@ -2,9 +2,17 @@
 
 import logging
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import requests
+from pydantic import BaseModel
+
+from lcsc_db.models import (
+    CatalogListResult,
+    Category,
+    ParamGroupResult,
+    ProductQueryResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +21,17 @@ DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+
+
+class LCSCApiConfig(BaseModel):
+    """Configuration for the LCSC API client."""
+
+    base_url: str = DEFAULT_BASE_URL
+    user_agent: str = DEFAULT_USER_AGENT
+    delay_seconds: float = 2.0
+    max_retries: int = 5
+    backoff_factor: float = 2.0
+    timeout: float = 30.0
 
 
 class LCSCApiError(Exception):
@@ -24,24 +43,18 @@ class LCSCApiError(Exception):
 class LCSCApi:
     """Client for fetching category and product data from LCSC web APIs."""
 
-    def __init__(
-        self,
-        base_url: str = DEFAULT_BASE_URL,
-        user_agent: str = DEFAULT_USER_AGENT,
-        delay_seconds: float = 2.0,
-        max_retries: int = 5,
-        backoff_factor: float = 2.0,
-        timeout: float = 30.0,
-    ) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.delay_seconds = delay_seconds
-        self.max_retries = max_retries
-        self.backoff_factor = backoff_factor
-        self.timeout = timeout
+    def __init__(self, config: Optional[LCSCApiConfig] = None) -> None:
+        config = config or LCSCApiConfig()
+        self.config = config
+        self.base_url = config.base_url.rstrip("/")
+        self.delay_seconds = config.delay_seconds
+        self.max_retries = config.max_retries
+        self.backoff_factor = config.backoff_factor
+        self.timeout = config.timeout
         self.session = requests.Session()
         self.session.headers.update(
             {
-                "User-Agent": user_agent,
+                "User-Agent": config.user_agent,
                 "Accept": "application/json, text/plain, */*",
                 "Content-Type": "application/json",
             }
@@ -97,22 +110,28 @@ class LCSCApi:
                 time.sleep(current_delay)
                 current_delay *= self.backoff_factor
 
-    def get_category_tree(self) -> List[Dict[str, Any]]:
+    def get_category_tree(self) -> list[Category]:
         """Fetch full category tree from /product/category/tree."""
         res = self._request_with_retry("GET", "/product/category/tree")
-        if isinstance(res, dict) and "result" in res:
-            return res["result"] or []
-        return []
+        raw = res.get("result") or [] if isinstance(res, dict) else []
+        return [Category.model_validate(item) for item in raw]
+
+    @staticmethod
+    def _as_list(value: Optional[Union[int, list[int]]]) -> Optional[list[int]]:
+        """Normalize a single ID or list of IDs into a list (or None)."""
+        if value is None:
+            return None
+        return [value] if isinstance(value, int) else list(value)
 
     def query_products(
         self,
-        category_ids: Optional[Union[int, List[int]]] = None,
-        brand_ids: Optional[Union[int, List[int]]] = None,
+        category_ids: Optional[Union[int, list[int]]] = None,
+        brand_ids: Optional[Union[int, list[int]]] = None,
         page: int = 1,
         page_size: int = 100,
         instock_only: bool = True,
         keyword: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> ProductQueryResult:
         """Query product list from /product/query/list.
 
         Args:
@@ -124,24 +143,18 @@ class LCSCApi:
             keyword: Keyword search query string.
 
         Returns:
-            Dict containing 'dataList', 'totalRow', 'currPage', 'totalPage'.
+            ProductQueryResult containing dataList, totalRow, currPage, totalPage.
         """
         payload: Dict[str, Any] = {
             "currentPage": page,
             "pageSize": page_size,
         }
 
-        if category_ids is not None:
-            if isinstance(category_ids, list):
-                payload["catalogIdList"] = category_ids
-            else:
-                payload["catalogIdList"] = [category_ids]
+        if (cl := self._as_list(category_ids)) is not None:
+            payload["catalogIdList"] = cl
 
-        if brand_ids is not None:
-            if isinstance(brand_ids, list):
-                payload["brandIdList"] = brand_ids
-            else:
-                payload["brandIdList"] = [brand_ids]
+        if (bl := self._as_list(brand_ids)) is not None:
+            payload["brandIdList"] = bl
 
         if instock_only:
             payload["isStock"] = True
@@ -150,17 +163,15 @@ class LCSCApi:
             payload["keyword"] = keyword
 
         res = self._request_with_retry("POST", "/product/query/list", json_payload=payload)
-        if isinstance(res, dict) and res.get("result"):
-            return res["result"]
-        return {"dataList": [], "totalRow": 0, "currPage": page, "totalPage": 0}
+        return ProductQueryResult.model_validate(res.get("result") or {} if isinstance(res, dict) else {})
 
     def get_param_group(
         self,
-        category_ids: Optional[Union[int, List[int]]] = None,
-        brand_ids: Optional[Union[int, List[int]]] = None,
+        category_ids: Optional[Union[int, list[int]]] = None,
+        brand_ids: Optional[Union[int, list[int]]] = None,
         instock_only: bool = True,
         keyword: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> ParamGroupResult:
         """Fetch parameter groups and accurate totalCount from /product/query/param/group.
 
         Args:
@@ -170,20 +181,15 @@ class LCSCApi:
             keyword: Keyword search query string.
 
         Returns:
-            Dict containing 'totalCount' and parameter group attributes.
+            ParamGroupResult containing totalCount and parameter group attributes.
         """
         payload: Dict[str, Any] = {}
-        if category_ids is not None:
-            if isinstance(category_ids, list):
-                payload["catalogIdList"] = category_ids
-            else:
-                payload["catalogIdList"] = [category_ids]
 
-        if brand_ids is not None:
-            if isinstance(brand_ids, list):
-                payload["brandIdList"] = brand_ids
-            else:
-                payload["brandIdList"] = [brand_ids]
+        if (cl := self._as_list(category_ids)) is not None:
+            payload["catalogIdList"] = cl
+
+        if (bl := self._as_list(brand_ids)) is not None:
+            payload["brandIdList"] = bl
 
         if instock_only:
             payload["isStock"] = True
@@ -192,16 +198,14 @@ class LCSCApi:
             payload["keyword"] = keyword
 
         res = self._request_with_retry("POST", "/product/query/param/group", json_payload=payload)
-        if isinstance(res, dict) and res.get("result"):
-            return res["result"]
-        return {"totalCount": 0}
+        return ParamGroupResult.model_validate(res.get("result") or {} if isinstance(res, dict) else {})
 
     def get_catalog_list(
         self,
         instock_only: bool = True,
-        brand_ids: Optional[Union[int, List[int]]] = None,
+        brand_ids: Optional[Union[int, list[int]]] = None,
         keyword: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> CatalogListResult:
         """Fetch catalog list and pre-calculated product counts from /product/catalog/list.
 
         Args:
@@ -210,7 +214,7 @@ class LCSCApi:
             keyword: Search keyword text.
 
         Returns:
-            Dict containing 'catalogList' and 'brandList'.
+            CatalogListResult containing catalogList and brandList.
         """
         payload: Dict[str, Any] = {
             "isStock": instock_only,
@@ -219,18 +223,9 @@ class LCSCApi:
             "isOtherSuppliers": False,
             "isDeals": False,
             "searchText": keyword or "",
+            "brandIdList": self._as_list(brand_ids) or [],
         }
 
-        if brand_ids is not None:
-            if isinstance(brand_ids, list):
-                payload["brandIdList"] = brand_ids
-            else:
-                payload["brandIdList"] = [brand_ids]
-        else:
-            payload["brandIdList"] = []
-
         res = self._request_with_retry("POST", "/product/catalog/list", json_payload=payload)
-        if isinstance(res, dict) and res.get("result"):
-            return res["result"]
-        return {"catalogList": [], "brandList": []}
+        return CatalogListResult.model_validate(res.get("result") or {} if isinstance(res, dict) else {})
 

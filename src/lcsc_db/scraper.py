@@ -4,16 +4,32 @@ import logging
 import signal
 import string
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Optional, Set, Tuple
+
+from pydantic import BaseModel
 from tqdm import tqdm
 
 from lcsc_db.api import LCSCApi
 from lcsc_db.db import LCSCDatabase
+from lcsc_db.models import Category, CatalogEntry
 
 logger = logging.getLogger(__name__)
 
 # Alphanumeric characters used for prefix sub-partitioning
 PARTITION_CHARS = string.digits + string.ascii_lowercase
+
+
+class ScraperConfig(BaseModel):
+    """Configuration for the LCSC scraper."""
+
+    instock_only: bool = True
+    include_raw_json: bool = True
+    enable_fts: bool = True
+    partition_threshold: int = 5000
+    max_partition_depth: int = 2
+    max_duration: Optional[float] = None
+    resume: bool = True
+    fresh: bool = False
 
 
 class LCSCScraper:
@@ -23,25 +39,20 @@ class LCSCScraper:
         self,
         api: LCSCApi,
         db: LCSCDatabase,
-        instock_only: bool = True,
-        include_raw_json: bool = True,
-        enable_fts: bool = True,
-        partition_threshold: int = 5000,
-        max_partition_depth: int = 2,
-        max_duration: Optional[float] = None,
-        resume: bool = True,
-        fresh: bool = False,
+        config: Optional[ScraperConfig] = None,
     ) -> None:
+        config = config or ScraperConfig()
         self.api = api
         self.db = db
-        self.instock_only = instock_only
-        self.include_raw_json = include_raw_json
-        self.enable_fts = enable_fts
-        self.partition_threshold = partition_threshold
-        self.max_partition_depth = max_partition_depth
-        self.max_duration = max_duration
-        self.resume = resume
-        self.fresh = fresh
+        self.config = config
+        self.instock_only = config.instock_only
+        self.include_raw_json = config.include_raw_json
+        self.enable_fts = config.enable_fts
+        self.partition_threshold = config.partition_threshold
+        self.max_partition_depth = config.max_partition_depth
+        self.max_duration = config.max_duration
+        self.resume = config.resume
+        self.fresh = config.fresh
 
         self.seen_product_ids: Set[int] = set()
         self.start_time: float = 0.0
@@ -66,51 +77,48 @@ class LCSCScraper:
         return False
 
     def _extract_all_categories(
-        self, cat_list: List[Dict[str, Any]], flat_list: Optional[List[Dict[str, Any]]] = None
-    ) -> List[Dict[str, Any]]:
+        self, cat_list: list[Category], flat_list: Optional[list[Category]] = None
+    ) -> list[Category]:
         """Flatten category tree to list of category objects."""
         if flat_list is None:
             flat_list = []
         for cat in cat_list:
             flat_list.append(cat)
-            children = cat.get("childrenList") or []
-            if children:
-                self._extract_all_categories(children, flat_list)
+            if cat.children:
+                self._extract_all_categories(cat.children, flat_list)
         return flat_list
 
     def _find_leaf_catalogs(
-        self, cat_list: List[Dict[str, Any]], path: str = ""
-    ) -> List[Tuple[int, str, int]]:
+        self, cat_list: list[CatalogEntry], path: str = ""
+    ) -> list[Tuple[int, str, int]]:
         """Find all leaf category IDs, breadcrumb names, and initial product count from catalogList."""
-        leaf_cats: List[Tuple[int, str, int]] = []
+        leaf_cats: list[Tuple[int, str, int]] = []
         for c in cat_list:
-            cid = c.get("catalogId") or c.get("categoryId")
-            name = c.get("catalogNameEn") or c.get("categoryNameEn") or c.get("categoryNameCn") or str(cid)
+            cid = c.catalog_id
+            name = c.name_en or str(cid)
             cur_path = f"{path} > {name}" if path else name
-            children = c.get("childCatelogs") or c.get("childrenList") or []
-            pnum = c.get("productNum", 0)
-            if not children:
+            pnum = c.product_num
+            if not c.child_catelogs:
                 if cid:
                     leaf_cats.append((cid, cur_path, pnum))
             else:
-                leaf_cats.extend(self._find_leaf_catalogs(children, cur_path))
+                leaf_cats.extend(self._find_leaf_catalogs(c.child_catelogs, cur_path))
         return leaf_cats
 
     def _find_leaf_categories(
-        self, cat_list: List[Dict[str, Any]], path: str = ""
-    ) -> List[Tuple[int, str]]:
+        self, cat_list: list[Category], path: str = ""
+    ) -> list[Tuple[int, str]]:
         """Find all leaf category IDs and their breadcrumb names."""
-        leaf_cats: List[Tuple[int, str]] = []
+        leaf_cats: list[Tuple[int, str]] = []
         for c in cat_list:
-            cid = c.get("categoryId") or c.get("catalogId")
-            name = c.get("categoryNameEn") or c.get("catalogNameEn") or c.get("categoryNameCn") or str(cid)
+            cid = c.category_id
+            name = c.name_en or c.name_cn or str(cid)
             cur_path = f"{path} > {name}" if path else name
-            children = c.get("childrenList") or c.get("childCatelogs") or []
-            if not children:
+            if not c.children:
                 if cid:
                     leaf_cats.append((cid, cur_path))
             else:
-                leaf_cats.extend(self._find_leaf_categories(children, cur_path))
+                leaf_cats.extend(self._find_leaf_categories(c.children, cur_path))
         return leaf_cats
 
     def _scrape_category_query(
@@ -154,7 +162,7 @@ class LCSCScraper:
             keyword=keyword,
         )
 
-        total_rows = res_first.get("totalRow") or 0
+        total_rows = res_first.total_row or 0
 
         # Optimization: Immediately skip empty categories/queries
         if total_rows == 0:
@@ -175,7 +183,7 @@ class LCSCScraper:
                     instock_only=self.instock_only,
                     keyword=keyword,
                 )
-                mfrs = param_group.get("Manufacturer") or []
+                mfrs = param_group.manufacturers
                 if mfrs:
                     logger.info(
                         "Category %s (totalRow=%d >= %d) partitioning by %d manufacturers...",
@@ -188,8 +196,8 @@ class LCSCScraper:
                     for m in mfrs:
                         if self._should_stop():
                             break
-                        m_id = int(m["id"])
-                        m_name = m.get("name") or str(m_id)
+                        m_id = int(m.id)
+                        m_name = m.name or str(m_id)
                         count += self._scrape_category_query(
                             cat_id=cat_id,
                             cat_path=cat_path,
@@ -257,9 +265,9 @@ class LCSCScraper:
                     keyword=keyword,
                 )
 
-            items = res.get("dataList") or []
-            total_pages = res.get("totalPage") or 0
-            t_rows = res.get("totalRow") or 0
+            items = res.data_list
+            total_pages = res.total_page or 0
+            t_rows = res.total_row or 0
 
             if pbar:
                 page_info = f"p.{page}/{total_pages}" if total_pages > 1 else f"p.{page}"
@@ -274,7 +282,7 @@ class LCSCScraper:
 
             pids: Set[int] = set()
             for item in items:
-                pid = item.get("productId")
+                pid = item.product_id
                 if pid:
                     pids.add(pid)
                     self.seen_product_ids.add(pid)
@@ -345,7 +353,7 @@ class LCSCScraper:
         else:
             logger.info("Fetching catalog list from LCSC API for accurate leaf counts...")
             catalog_res = self.api.get_catalog_list(instock_only=self.instock_only)
-            catalog_list = catalog_res.get("catalogList") or []
+            catalog_list = catalog_res.catalog_list
             if catalog_list:
                 leaf_cats = self._find_leaf_catalogs(catalog_list)
             else:

@@ -41,12 +41,16 @@ uv run lcsc-db --instock-only --compress
 | :--- | :--- | :--- |
 | `--db-path` | `lcsc.sqlite3` | Output SQLite database file path |
 | `--delay` | `2.0` | Delay in seconds between API requests |
-| `--instock-only / --all-parts` | `True` | Fetch in-stock parts only (saves ~70% API calls) |
-| `--include-raw-json / --no-raw-json` | `True` | Include full raw API JSON in `raw_json` column |
-| `--enable-fts / --no-fts` | `True` | Build SQLite `FTS5` full-text search index |
+| `--instock-only / --no-inststock-only` | `True` | Fetch in-stock parts only (saves ~70% API calls) |
+| `--include-raw-json / --no-include-raw-json` | `True` | Include full raw API JSON in `raw_json` column |
+| `--enable-fts / --no-enable-fts` | `True` | Build SQLite `FTS5` full-text search index |
 | `--category-id` | `None` | Scrape a single category ID |
 | `--max-pages` | `None` | Limit max pages per category |
-| `--compress` | `False` | Compress database to `.tar.gz` upon completion |
+| `--max-duration` | `None` | Max execution time (seconds) before graceful pause |
+| `--resume / --no-resume` | `True` | Resume from previous scrape progress |
+| `--fresh / --no-fresh` | `False` | Clear previous scrape progress and start fresh |
+| `--compress / --no-compress` | `False` | Compress database to `.tar.gz` upon completion |
+| `--verbose / --no-verbose` | `False` | Enable verbose DEBUG logging |
 
 ## Running Tests
 

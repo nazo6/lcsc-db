@@ -1,29 +1,30 @@
 """Integration tests for CLI entrypoint."""
 
-from click.testing import CliRunner
+import pytest
 
-from lcsc_db.cli import main
+from pydantic_settings import CliApp
 
-
-def test_cli_help():
-    runner = CliRunner()
-    result = runner.invoke(main, ["--help"])
-    assert result.exit_code == 0
-    assert "LCSC Product Catalog Database Builder CLI" in result.output
-    assert "--instock-only" in result.output
-    assert "--include-raw-json" in result.output
-    assert "--enable-fts" in result.output
-    assert "--max-duration" in result.output
-    assert "--resume" in result.output
-    assert "--fresh" in result.output
+from lcsc_db.cli import Settings
 
 
-def test_cli_dry_run(tmp_path):
+def test_cli_help(capsys):
+    with pytest.raises(SystemExit):
+        CliApp.run(Settings, cli_args=["--help"])
+    out = capsys.readouterr().out
+    assert "LCSC Product Catalog Database Builder CLI" in out
+    assert "--instock-only" in out
+    assert "--include-raw-json" in out
+    assert "--enable-fts" in out
+    assert "--max-duration" in out
+    assert "--resume" in out
+    assert "--fresh" in out
+
+
+def test_cli_dry_run(tmp_path, capsys):
     db_file = tmp_path / "cli_test.sqlite3"
-    runner = CliRunner()
-    result = runner.invoke(
-        main,
-        [
+    CliApp.run(
+        Settings,
+        cli_args=[
             "--db-path",
             str(db_file),
             "--category-id",
@@ -38,8 +39,7 @@ def test_cli_dry_run(tmp_path):
         ],
     )
 
-    assert result.exit_code == 0
-    assert "Successfully processed" in result.output
+    out = capsys.readouterr().out
+    assert "Successfully processed" in out
     assert db_file.exists()
     assert (tmp_path / "cli_test.sqlite3.tar.gz").exists()
-

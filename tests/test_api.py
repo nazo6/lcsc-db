@@ -3,18 +3,18 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from lcsc_db.api import LCSCApi, LCSCApiError
+from lcsc_db.api import LCSCApi, LCSCApiConfig, LCSCApiError
 
 
 def test_api_init_options():
-    api = LCSCApi(delay_seconds=1.5, user_agent="CustomUserAgent/1.0", timeout=15.0)
+    api = LCSCApi(LCSCApiConfig(delay_seconds=1.5, user_agent="CustomUserAgent/1.0", timeout=15.0))
     assert api.delay_seconds == 1.5
     assert api.session.headers["User-Agent"] == "CustomUserAgent/1.0"
     assert api.timeout == 15.0
 
 
 def test_query_products_payload_options():
-    api = LCSCApi(delay_seconds=0.0)
+    api = LCSCApi(LCSCApiConfig(delay_seconds=0.0))
     
     with patch.object(api, "_request_with_retry") as mock_request:
         mock_request.return_value = {
@@ -105,40 +105,38 @@ def test_query_products_payload_options():
 @pytest.mark.integration
 def test_live_get_category_tree():
     """Live API test for fetching category tree."""
-    api = LCSCApi(delay_seconds=0.5)
+    api = LCSCApi(LCSCApiConfig(delay_seconds=0.5))
     tree = api.get_category_tree()
     assert isinstance(tree, list)
     assert len(tree) > 0
-    assert "categoryId" in tree[0]
-    assert "categoryNameEn" in tree[0]
+    assert tree[0].category_id is not None
+    assert tree[0].name_en
 
 
 @pytest.mark.integration
 def test_live_get_catalog_list():
     """Live API test for fetching catalog list."""
-    api = LCSCApi(delay_seconds=0.5)
+    api = LCSCApi(LCSCApiConfig(delay_seconds=0.5))
     cat_res = api.get_catalog_list(instock_only=True)
-    assert isinstance(cat_res, dict)
-    assert "catalogList" in cat_res
-    assert len(cat_res["catalogList"]) > 0
-    assert "catalogId" in cat_res["catalogList"][0]
+    assert isinstance(cat_res, object)
+    assert cat_res.catalog_list
+    assert cat_res.catalog_list[0].catalog_id is not None
 
 
 @pytest.mark.integration
 def test_live_query_products_options():
     """Live API test for querying products and param group with options."""
-    api = LCSCApi(delay_seconds=0.5)
-    
+    api = LCSCApi(LCSCApiConfig(delay_seconds=0.5))
+
     # Test instock_only=True vs instock_only=False
     res_instock = api.query_products(category_ids=51, page=1, page_size=5, instock_only=True)
     res_all = api.query_products(category_ids=51, page=1, page_size=5, instock_only=False)
 
-    assert "dataList" in res_instock
-    assert "dataList" in res_all
-    assert res_instock["totalRow"] <= res_all["totalRow"]
+    assert isinstance(res_instock.data_list, list)
+    assert isinstance(res_all.data_list, list)
+    assert res_instock.total_row <= res_all.total_row
 
     # Test live get_param_group totalCount
     res_group = api.get_param_group(category_ids=51, instock_only=True)
-    assert "totalCount" in res_group
-    assert res_group["totalCount"] > 0
+    assert res_group.total_count > 0
 

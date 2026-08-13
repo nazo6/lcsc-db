@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 from lcsc_db.db import LCSCDatabase
+from lcsc_db.models import Product
 
 
 @pytest.fixture
@@ -75,7 +76,7 @@ def test_upsert_products_lossless_and_fts(temp_db):
         "isHot": True,
     }
 
-    temp_db.upsert_products([sample_product], include_raw_json=True)
+    temp_db.upsert_products([Product.model_validate(sample_product)], include_raw_json=True)
     temp_db.rebuild_fts()
 
     cursor = temp_db.conn.cursor()
@@ -123,7 +124,7 @@ def test_mark_unseen_stock_zero_from_db(temp_db):
 
     p1 = {"productId": 101, "productCode": "C101", "productModel": "M101", "stockNumber": 50}
     p2 = {"productId": 102, "productCode": "C102", "productModel": "M102", "stockNumber": 50}
-    temp_db.upsert_products([p1, p2])
+    temp_db.upsert_products([Product.model_validate(p) for p in [p1, p2]])
 
     # Only record 101 as seen
     temp_db.record_seen_products({101})

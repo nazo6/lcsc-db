@@ -3,7 +3,9 @@
 import json
 import logging
 import sqlite3
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Optional, Set
+
+from lcsc_db.models import Category, Product
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +154,7 @@ class LCSCDatabase:
                 """
             )
 
-    def upsert_categories(self, categories_list: List[Dict[str, Any]]) -> None:
+    def upsert_categories(self, categories_list: list[Category]) -> None:
         """Insert or update categories."""
         query = """
         INSERT INTO categories (id, parent_id, name_en, name_cn, code)
@@ -164,20 +166,14 @@ class LCSCDatabase:
             code=excluded.code;
         """
         rows = [
-            (
-                cat.get("categoryId"),
-                cat.get("parentId"),
-                cat.get("categoryNameEn", ""),
-                cat.get("categoryNameCn"),
-                cat.get("enCategoryCode"),
-            )
+            (cat.category_id, cat.parent_id, cat.name_en, cat.name_cn, cat.code)
             for cat in categories_list
         ]
         with self.conn:
             self.conn.executemany(query, rows)
 
     def upsert_products(
-        self, products: List[Dict[str, Any]], include_raw_json: bool = True
+        self, products: list[Product], include_raw_json: bool = True
     ) -> None:
         """Insert or update products and their parameters."""
         if not products:
@@ -239,57 +235,61 @@ class LCSCDatabase:
         param_rows = []
 
         for p in products:
-            pid = p.get("productId")
-            if not pid or not p.get("productCode"):
+            pid = p.product_id
+            if not pid or not p.lcsc_number:
                 continue
 
             row = [
                 pid,
-                p.get("productCode", ""),
-                p.get("productModel", ""),
-                p.get("brandId"),
-                p.get("brandNameEn", ""),
-                p.get("encapStandard", ""),
-                p.get("productIntroEn", ""),
-                p.get("catalogId") or p.get("wmCatalogId"),
-                p.get("firstWmCatalogNameEn"),
-                p.get("secondWmCatalogNameEn"),
-                p.get("thirdWmCatalogNameEn"),
-                p.get("stockNumber", 0),
-                p.get("stockSz", 0),
-                p.get("stockJs", 0),
-                p.get("wmStockHk", 0),
-                p.get("minBuyNumber", 1),
-                p.get("split", 1),
-                p.get("minPacketNumber"),
-                p.get("minPacketUnit"),
-                p.get("productUnit"),
-                p.get("productArrange"),
-                json.dumps(p.get("productPriceList") or []),
-                p.get("pdfUrl"),
-                p.get("productImageUrl"),
-                json.dumps(p.get("productImages") or []),
-                p.get("moistureSensitivityLevel"),
-                p.get("eccn"),
-                p.get("url"),
-                1 if p.get("isEnvironment") else 0,
-                1 if p.get("isHot") else 0,
-                1 if p.get("isReel") else 0,
-                float(p.get("reelPrice") or 0.0),
-                1 if p.get("isSample") else 0,
-                1 if p.get("isDiscount") else 0,
-                1 if p.get("isPreSale") else 0,
+                p.lcsc_number,
+                p.mfr_part_number,
+                p.brand_id,
+                p.brand_name,
+                p.package,
+                p.description,
+                p.category_id,
+                p.first_category_name,
+                p.second_category_name,
+                p.third_category_name,
+                p.stock or 0,
+                p.stock_sz or 0,
+                p.stock_js or 0,
+                p.stock_hk or 0,
+                p.moq or 1,
+                p.spq or 1,
+                p.min_packet_number,
+                p.min_packet_unit,
+                p.product_unit,
+                p.product_arrange,
+                json.dumps(
+                    [pl.model_dump(by_alias=True) for pl in (p.price_ladder or [])],
+                    ensure_ascii=False,
+                ),
+                p.pdf_url,
+                p.image_url,
+                json.dumps(p.product_images or [], ensure_ascii=False),
+                p.msl,
+                p.eccn,
+                p.url,
+                1 if p.is_rohs else 0,
+                1 if p.is_hot else 0,
+                1 if p.is_reel else 0,
+                float(p.reel_price or 0.0),
+                1 if p.is_sample else 0,
+                1 if p.is_discount else 0,
+                1 if p.is_pre_sale else 0,
             ]
             if include_raw_json:
-                row.append(json.dumps(p, ensure_ascii=False))
+                row.append(
+                    json.dumps(p.model_dump(mode="json", by_alias=True, exclude_none=True), ensure_ascii=False)
+                )
 
             product_rows.append(row)
 
             # Parameters
-            params = p.get("paramVOList") or []
-            for param in params:
-                p_name = param.get("paramNameEn") or param.get("paramName")
-                p_val = param.get("paramValueEn") or param.get("paramValue")
+            for param in p.params or []:
+                p_name = param.name
+                p_val = param.value
                 if p_name and p_val:
                     param_rows.append((pid, str(p_name), str(p_val)))
 
