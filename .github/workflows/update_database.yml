@@ -50,7 +50,7 @@ jobs:
 
       - name: Sync JLCPCB Component Database
         run: |
-          uv run lcsc-db sync-jlcpcb --db-path lcsc.sqlite3 --enable-fts
+          uv run lcsc-db sync-jlcpcb --db-path lcsc.sqlite3 --no-enable-fts
 
       - name: Run LCSC Database Scraper
         run: |
