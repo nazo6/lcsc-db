@@ -304,22 +304,33 @@ class LCSCScraper:
 
         if target_category_id:
             leaf_cats = [(target_category_id, f"Category #{target_category_id}", None)]
+            total_expected = 0
         else:
+            tree_leafs = self._find_leaf_categories(cat_tree) if cat_tree else []
+
             logger.info("Fetching catalog list from LCSC API for accurate leaf counts...")
             catalog_res = self.api.get_catalog_list(instock_only=self.instock_only)
             catalog_list = catalog_res.catalog_list
+
             if catalog_list:
-                leaf_cats = self._find_leaf_catalogs(catalog_list)
+                catalog_leafs = self._find_leaf_catalogs(catalog_list)
+                catalog_pnum_map = {
+                    cid: pnum for cid, path, pnum in catalog_leafs if cid is not None
+                }
+                total_expected = sum(pnum for _, _, pnum in catalog_leafs)
             else:
-                # Fallback to category tree if catalog_list is empty
+                catalog_pnum_map = {}
+                catalog_leafs = []
+                total_expected = 0
+
+            if tree_leafs:
                 leaf_cats = [
-                    (cid, path, None) for cid, path in self._find_leaf_categories(cat_tree)
+                    (cid, path, catalog_pnum_map.get(cid)) for cid, path in tree_leafs
                 ]
+            else:
+                leaf_cats = catalog_leafs
 
         total_cats = len(leaf_cats)
-        total_expected = sum(
-            pnum for item in leaf_cats if len(item) == 3 and (pnum := item[2]) is not None
-        )
 
         self.progress_logger = ScrapeProgressLogger(
             total_expected_products=total_expected,

@@ -188,3 +188,64 @@ def test_scraper_item_tracking_and_catalog_list_expected(tmp_path):
     db.close()
 
 
+def test_scraper_tree_leaf_resolution_overrides_truncated_catalog_list(tmp_path):
+    """Test that true leaf categories from category_tree are queried even if catalog_list truncates parent nodes."""
+    db_file = tmp_path / "test_tree_leaf_resolution.sqlite3"
+    api = LCSCApi(LCSCApiConfig(delay_seconds=0.0))
+    db = LCSCDatabase(str(db_file))
+
+    scraper = LCSCScraper(api=api, db=db)
+
+    # Cat 1433 in category_tree has children 1434 and 1435
+    api.get_category_tree = MagicMock(
+        return_value=[
+            Category(
+                category_id=1433,
+                name_en="FETs, MOSFETs",
+                children=[
+                    Category(category_id=1434, name_en="FET Arrays", children=[]),
+                    Category(category_id=1435, name_en="Single FETs", children=[]),
+                ],
+            )
+        ]
+    )
+
+    # catalog_list lists 1433 as leaf entry with 40,000 productNum
+    api.get_catalog_list = MagicMock(
+        return_value=CatalogListResult.model_validate({
+            "catalogList": [
+                {
+                    "catalogId": 1433,
+                    "catalogNameEn": "FETs, MOSFETs",
+                    "productNum": 40000,
+                    "childCatelogs": [],
+                }
+            ]
+        })
+    )
+
+    queried_cat_ids = []
+
+    def mock_query(category_ids, brand_ids=None, page=1, page_size=100, instock_only=True, keyword=None):
+        cid = category_ids[0] if isinstance(category_ids, list) else category_ids
+        queried_cat_ids.append(cid)
+        return ProductQueryResult(
+            total_row=10,
+            total_page=1,
+            data_list=[Product(product_id=cid, lcsc_number=f"C{cid}")],
+        )
+
+    api.query_products = MagicMock(side_effect=mock_query)
+
+    count = scraper.run()
+
+    # Should query subcategories 1434 and 1435, NOT parent 1433
+    assert 1433 not in queried_cat_ids
+    assert 1434 in queried_cat_ids
+    assert 1435 in queried_cat_ids
+    assert count == 2
+
+    db.close()
+
+
+
