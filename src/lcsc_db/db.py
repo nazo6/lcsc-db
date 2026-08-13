@@ -1,6 +1,5 @@
 """SQLite Database Manager for LCSC product catalog."""
 
-import json
 import logging
 from contextlib import contextmanager
 from pathlib import Path
@@ -88,29 +87,16 @@ class LCSCDatabase:
 
     def upsert_categories(self, categories_list: list[Category]) -> None:
         """Insert or update categories."""
+        update_cols = [c for c in CategoryRecord.model_fields if c != "id"]
         insert_stmt = sqlite_insert(CategoryRecord)
         stmt = insert_stmt.on_conflict_do_update(
             index_elements=[CategoryRecord.id],
-            set_={
-                "parent_id": insert_stmt.excluded.parent_id,
-                "name_en": insert_stmt.excluded.name_en,
-                "name_cn": insert_stmt.excluded.name_cn,
-                "code": insert_stmt.excluded.code,
-            },
+            set_={c: getattr(insert_stmt.excluded, c) for c in update_cols},
         )
-        rows = [
-            {
-                "id": cat.category_id,
-                "parent_id": cat.parent_id,
-                "name_en": cat.name_en,
-                "name_cn": cat.name_cn,
-                "code": cat.code,
-            }
-            for cat in categories_list
-        ]
+        rows = [CategoryRecord.from_category(cat) for cat in categories_list]
         with self._tx() as session:
             if rows:
-                session.execute(stmt, rows)
+                session.execute(stmt, [r.model_dump() for r in rows])
 
     def upsert_products(
         self, products: list[Product], include_raw_json: bool = True
@@ -124,40 +110,9 @@ class LCSCDatabase:
             return
 
         update_cols = [
-            "lcsc_number",
-            "mfr_part_number",
-            "brand_id",
-            "brand_name",
-            "package",
-            "description",
-            "category_id",
-            "first_category_name",
-            "second_category_name",
-            "third_category_name",
-            "stock",
-            "stock_sz",
-            "stock_js",
-            "stock_hk",
-            "moq",
-            "spq",
-            "min_packet_number",
-            "min_packet_unit",
-            "product_unit",
-            "product_arrange",
-            "price_ladder",
-            "pdf_url",
-            "image_url",
-            "product_images",
-            "msl",
-            "eccn",
-            "url",
-            "is_rohs",
-            "is_hot",
-            "is_reel",
-            "reel_price",
-            "is_sample",
-            "is_discount",
-            "is_pre_sale",
+            c
+            for c in ProductRecord.model_fields
+            if c not in ("product_id", "last_updated", "raw_json")
         ]
         if include_raw_json:
             update_cols.append("raw_json")
@@ -171,77 +126,31 @@ class LCSCDatabase:
             },
         )
 
-        product_rows = []
+        product_records = []
         param_rows = []
 
         for p in products:
-            pid = p.product_id
-            if not pid or not p.lcsc_number:
+            record = ProductRecord.from_product(p, include_raw_json=include_raw_json)
+            if record is None:
                 continue
-
-            row = {
-                "product_id": pid,
-                "lcsc_number": p.lcsc_number,
-                "mfr_part_number": p.mfr_part_number,
-                "brand_id": p.brand_id,
-                "brand_name": p.brand_name,
-                "package": p.package,
-                "description": p.description,
-                "category_id": p.category_id,
-                "first_category_name": p.first_category_name,
-                "second_category_name": p.second_category_name,
-                "third_category_name": p.third_category_name,
-                "stock": p.stock or 0,
-                "stock_sz": p.stock_sz or 0,
-                "stock_js": p.stock_js or 0,
-                "stock_hk": p.stock_hk or 0,
-                "moq": p.moq or 1,
-                "spq": p.spq or 1,
-                "min_packet_number": p.min_packet_number,
-                "min_packet_unit": p.min_packet_unit,
-                "product_unit": p.product_unit,
-                "product_arrange": p.product_arrange,
-                "price_ladder": json.dumps(
-                    [pl.model_dump(by_alias=True) for pl in (p.price_ladder or [])],
-                    ensure_ascii=False,
-                ),
-                "pdf_url": p.pdf_url,
-                "image_url": p.image_url,
-                "product_images": json.dumps(p.product_images or [], ensure_ascii=False),
-                "msl": p.msl,
-                "eccn": p.eccn,
-                "url": p.url,
-                "is_rohs": 1 if p.is_rohs else 0,
-                "is_hot": 1 if p.is_hot else 0,
-                "is_reel": 1 if p.is_reel else 0,
-                "reel_price": float(p.reel_price or 0.0),
-                "is_sample": 1 if p.is_sample else 0,
-                "is_discount": 1 if p.is_discount else 0,
-                "is_pre_sale": 1 if p.is_pre_sale else 0,
-            }
-            if include_raw_json:
-                row["raw_json"] = json.dumps(
-                    p.model_dump(mode="json", by_alias=True, exclude_none=True),
-                    ensure_ascii=False,
-                )
-            product_rows.append(row)
+            product_records.append(record)
 
             for param in p.params or []:
                 if param.name and param.value:
                     param_rows.append(
                         {
-                            "product_id": pid,
+                            "product_id": record.product_id,
                             "param_name": str(param.name),
                             "param_value": str(param.value),
                         }
                     )
 
         with self._tx() as session:
-            if product_rows:
-                session.execute(stmt, product_rows)
+            if product_records:
+                session.execute(stmt, [r.model_dump() for r in product_records])
 
                 # Refresh parameters for inserted products
-                pids = [r["product_id"] for r in product_rows]
+                pids = [r.product_id for r in product_records]
                 session.execute(
                     delete(ProductParamRecord).where(ProductParamRecord.product_id.in_(pids))
                 )

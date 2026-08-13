@@ -122,6 +122,25 @@ def test_raw_json_null_when_disabled(temp_db):
     assert row.raw_json is None
 
 
+def test_raw_json_preserved_when_disabled_on_update(temp_db):
+    temp_db.init_schema()
+
+    p = {"productId": 202, "productCode": "C202", "productModel": "M202", "stockNumber": 10}
+    temp_db.upsert_products([Product.model_validate(p)], include_raw_json=True)
+
+    # Re-upsert the same product without raw_json: stored raw_json must be preserved.
+    p["stockNumber"] = 20
+    temp_db.upsert_products([Product.model_validate(p)], include_raw_json=False)
+
+    with Session(temp_db.engine) as session:
+        row = session.exec(
+            select(ProductRecord).where(ProductRecord.product_id == 202)
+        ).one()
+    assert row.stock == 20
+    assert row.raw_json is not None
+    assert json.loads(row.raw_json)["productId"] == 202
+
+
 def test_db_progress_tracking(temp_db):
     temp_db.init_schema()
 
