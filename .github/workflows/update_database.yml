@@ -40,19 +40,15 @@ jobs:
       - name: Download existing database release asset (for cache / delta update)
         continue-on-error: true
         run: |
-          gh release download latest -p "lcsc.sqlite3.tar.gz" || true
-          if [ -f "lcsc.sqlite3.tar.gz" ]; then
-            echo "Found existing database release archive. Decompressing..."
-            tar -xzf lcsc.sqlite3.tar.gz
+          gh release download latest -p "lcsc_only.sqlite3.tar.gz" || true
+          if [ -f "lcsc_only.sqlite3.tar.gz" ]; then
+            echo "Found existing LCSC-only database release archive. Decompressing..."
+            tar -xzf lcsc_only.sqlite3.tar.gz
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Sync JLCPCB Component Database
-        run: |
-          uv run lcsc-db sync-jlcpcb --db-path lcsc.sqlite3 --no-enable-fts
-
-      - name: Run LCSC Database Scraper
+      - name: [Phase 1/2] Run LCSC Database Scraper (Generate DB 2: LCSC Only)
         run: |
           INSTOCK_FLAG="--instock-only"
           if [ "${{ github.event.inputs.instock_only }}" = "false" ]; then
@@ -60,15 +56,30 @@ jobs:
           fi
           DELAY="${{ github.event.inputs.delay_seconds || '2.0' }}"
 
-          uv run lcsc-db scrape-lcsc --db-path lcsc.sqlite3 --delay "$DELAY" $INSTOCK_FLAG --include-raw-json --enable-fts --compress
+          uv run lcsc-db scrape-lcsc --db-path lcsc_only.sqlite3 --delay "$DELAY" $INSTOCK_FLAG --include-raw-json --enable-fts --compress
 
-      - name: Upload Database Artifact
+      - name: Benchmark DB 2 (LCSC Only Variants Size)
+        run: |
+          uv run python scripts/benchmark_variants.py --db-path lcsc_only.sqlite3 --label "LCSC Only (DB 2)" --output-markdown "$GITHUB_STEP_SUMMARY"
+
+      - name: [Phase 2/2] Sync JLCPCB Component Database (Generate DB 1: JLCPCB Integrated)
+        run: |
+          cp lcsc_only.sqlite3 lcsc.sqlite3
+          uv run lcsc-db sync-jlcpcb --db-path lcsc.sqlite3 --enable-fts --compress
+
+      - name: Benchmark DB 1 (JLCPCB Integrated Variants Size)
+        run: |
+          uv run python scripts/benchmark_variants.py --db-path lcsc.sqlite3 --label "JLCPCB Integrated (DB 1)" --output-markdown "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Database Artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: lcsc-database
+          name: lcsc-databases
           path: |
             lcsc.sqlite3.tar.gz
             lcsc.sqlite3
+            lcsc_only.sqlite3.tar.gz
+            lcsc_only.sqlite3
 
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v3
@@ -78,11 +89,16 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: "LCSC Product Database (Latest)"
           body: |
-            Automated LCSC Product Database build.
-            - SQLite database compressed as `lcsc.sqlite3.tar.gz`
-            - Built at: ${{ github.event.repository.updated_at }}
+            Automated LCSC Product Database build release.
+
+            ### Download Links:
+            - **JLCPCB Integrated DB (DB 1)**: `lcsc.sqlite3.tar.gz` (Full JLCPCB + LCSC catalog)
+            - **LCSC Only DB (DB 2)**: `lcsc_only.sqlite3.tar.gz` (LCSC catalog only)
+
+            Built at: ${{ github.event.repository.updated_at }}
           files: |
             lcsc.sqlite3.tar.gz
+            lcsc_only.sqlite3.tar.gz
           make_latest: true
           overwrite: true
           draft: false
