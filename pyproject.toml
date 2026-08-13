@@ -11,6 +11,7 @@ dependencies = [
     "alembic>=1.14",
     "pydantic>=2.10",
     "pydantic-settings>=2.9",
+    "pyrefly>=1.2.0",
     "pytest>=9.1.1",
     "requests>=2.34.2",
     "sqlmodel>=0.0.29",
@@ -23,6 +24,12 @@ lcsc-db = "lcsc_db.cli:main"
 [tool.pytest.ini_options]
 markers = [
     "integration: mark test as live integration test",
+]
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
 ]
 
 [build-system]
