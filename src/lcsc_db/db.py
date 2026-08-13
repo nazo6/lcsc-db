@@ -151,6 +151,12 @@ class LCSCDatabase:
                 if param_rows:
                     session.exec(sqlite_insert(ProductParamRecord), params=param_rows)
 
+    def import_jlcpcb_cache(self, cache_db_path: Path) -> int:
+        """Import components and categories from an extracted JLCPCB cache.sqlite3."""
+        from lcsc_db.jlcpcb import import_cache_db
+
+        return import_cache_db(cache_db_path, Path(self.db_path))
+
     def rebuild_fts(self) -> None:
         """Rebuild FTS5 index for full-text search."""
         if not self._has_table("products_fts"):
@@ -181,3 +187,4 @@ class LCSCDatabase:
         with self._tx() as session:
             result = session.exec(update_stmt)
             return result.rowcount or 0
+

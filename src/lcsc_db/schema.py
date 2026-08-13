@@ -74,6 +74,11 @@ class ProductRecord(SQLModel, table=True):
     is_sample: int | None = Field(default=0)
     is_discount: int | None = Field(default=0)
     is_pre_sale: int | None = Field(default=0)
+    jlcpcb_stock: int | None = Field(default=0)
+    jlcpcb_price_ladder: str | None = None
+    jlcpcb_library_type: str | None = None
+    jlcpcb_extra: str | None = None
+    jlcpcb_last_updated: datetime | None = None
     last_updated: datetime | None = Field(
         default=None,
         sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP")},
@@ -154,6 +159,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS products_fts USING fts5(
     brand_name,
     package,
     description,
+    first_category_name,
+    second_category_name,
+    tokenize="trigram",
     content='products',
     content_rowid='product_id'
 );

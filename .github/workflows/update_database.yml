@@ -48,6 +48,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Sync JLCPCB Component Database
+        run: |
+          uv run lcsc-db sync-jlcpcb --db-path lcsc.sqlite3 --enable-fts
+
       - name: Run LCSC Database Scraper
         run: |
           INSTOCK_FLAG="--instock-only"
@@ -56,7 +60,7 @@ jobs:
           fi
           DELAY="${{ github.event.inputs.delay_seconds || '2.0' }}"
 
-          uv run lcsc-db --db-path lcsc.sqlite3 --delay "$DELAY" $INSTOCK_FLAG --include-raw-json --enable-fts --compress
+          uv run lcsc-db scrape-lcsc --db-path lcsc.sqlite3 --delay "$DELAY" $INSTOCK_FLAG --include-raw-json --enable-fts --compress
 
       - name: Upload Database Artifact
         uses: actions/upload-artifact@v7
