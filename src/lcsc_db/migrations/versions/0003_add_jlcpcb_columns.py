@@ -39,8 +39,7 @@ def upgrade() -> None:
                 first_category_name,
                 second_category_name,
                 tokenize="trigram",
-                content='products',
-                content_rowid='product_id'
+                content='products'
             )
         """)
 

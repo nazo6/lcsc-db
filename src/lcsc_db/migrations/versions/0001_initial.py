@@ -52,7 +52,6 @@ def upgrade() -> None:
     )
     op.create_table(
         "products",
-        sa.Column("product_id", sa.Integer(), nullable=False),
         sa.Column("lcsc_number", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("mfr_part_number", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("brand_id", sa.Integer(), nullable=True),
@@ -95,29 +94,33 @@ def upgrade() -> None:
         ),
         sa.Column("raw_json", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.ForeignKeyConstraint(["category_id"], ["categories.id"]),
-        sa.PrimaryKeyConstraint("product_id"),
+        sa.PrimaryKeyConstraint("lcsc_number"),
     )
-    op.create_index("ix_products_lcsc_number", "products", ["lcsc_number"], unique=True)
     op.create_index("ix_products_mfr_part_number", "products", ["mfr_part_number"], unique=False)
     op.create_index("ix_products_category_id", "products", ["category_id"], unique=False)
     op.create_table(
         "product_params",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("product_id", sa.Integer(), nullable=True),
+        sa.Column("lcsc_number", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column("param_name", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column("param_value", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-        sa.ForeignKeyConstraint(["product_id"], ["products.product_id"]),
+        sa.ForeignKeyConstraint(["lcsc_number"], ["products.lcsc_number"]),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(
-        "ix_product_params_product_id", "product_params", ["product_id"], unique=False
+        "ix_product_params_lcsc_number", "product_params", ["lcsc_number"], unique=False
     )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_product_params_product_id", table_name="product_params")
+    op.drop_index("ix_product_params_lcsc_number", table_name="product_params")
     op.drop_table("product_params")
-    op.drop_index("ix_products_lcsc_number", table_name="products")
+    op.drop_index("ix_products_mfr_part_number", table_name="products")
+    op.drop_index("ix_products_category_id", table_name="products")
+    op.drop_table("products")
+    op.drop_table("scraped_seen_products")
+    op.drop_table("scrape_progress")
+    op.drop_table("categories")
     op.drop_index("ix_products_mfr_part_number", table_name="products")
     op.drop_index("ix_products_category_id", table_name="products")
     op.drop_table("products")

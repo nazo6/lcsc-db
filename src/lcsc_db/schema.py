@@ -39,8 +39,7 @@ class CategoryRecord(SQLModel, table=True):
 class ProductRecord(SQLModel, table=True):
     __tablename__ = "products"  # pyrefly: ignore[bad-override]
 
-    product_id: int | None = Field(default=None, primary_key=True)
-    lcsc_number: str = Field(unique=True, index=True)
+    lcsc_number: str = Field(primary_key=True)
     mfr_part_number: str = Field(index=True)
     brand_id: int | None = None
     brand_name: str | None = None
@@ -91,12 +90,12 @@ class ProductRecord(SQLModel, table=True):
     ) -> "ProductRecord | None":
         """Map an API ``Product`` to a record for the products table.
 
-        Returns ``None`` if the product lacks a primary key or LCSC number.
+        Returns ``None`` if the product lacks an LCSC number.
         """
-        if not product.product_id or not product.lcsc_number:
+        if not product.lcsc_number:
             return None
+
         data: dict[str, Any] = {
-            "product_id": product.product_id,
             "lcsc_number": product.lcsc_number,
             "mfr_part_number": product.mfr_part_number,
             "brand_id": product.brand_id,
@@ -147,7 +146,7 @@ class ProductParamRecord(SQLModel, table=True):
     __tablename__ = "product_params"  # pyrefly: ignore[bad-override]
 
     id: int | None = Field(default=None, primary_key=True)
-    product_id: int | None = Field(default=None, foreign_key="products.product_id", index=True)
+    lcsc_number: str | None = Field(default=None, foreign_key="products.lcsc_number", index=True)
     param_name: str | None = None
     param_value: str | None = None
 
@@ -162,7 +161,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS products_fts USING fts5(
     first_category_name,
     second_category_name,
     tokenize="trigram",
-    content='products',
-    content_rowid='product_id'
+    content='products'
 );
 """

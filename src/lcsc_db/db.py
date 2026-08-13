@@ -104,7 +104,7 @@ class LCSCDatabase:
         update_cols = [
             c
             for c in ProductRecord.model_fields
-            if c not in ("product_id", "last_updated", "raw_json")
+            if c not in ("lcsc_number", "last_updated", "raw_json")
         ]
         if include_raw_json:
             update_cols.append("raw_json")
@@ -131,7 +131,7 @@ class LCSCDatabase:
                 if param.name and param.value:
                     param_rows.append(
                         {
-                            "product_id": record.product_id,
+                            "lcsc_number": record.lcsc_number,
                             "param_name": param.name,
                             "param_value": param.value,
                         }
@@ -142,10 +142,10 @@ class LCSCDatabase:
                 session.exec(stmt, params=[r.model_dump() for r in product_records])
 
                 # Refresh parameters for inserted products
-                pids = [r.product_id for r in product_records]
+                lcsc_nums = [r.lcsc_number for r in product_records]
                 session.exec(
                     delete(ProductParamRecord).where(
-                        col(ProductParamRecord.product_id).in_(pids)
+                        col(ProductParamRecord.lcsc_number).in_(lcsc_nums)
                     )
                 )
                 if param_rows:

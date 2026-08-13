@@ -90,7 +90,7 @@ def test_upsert_products_lossless_and_fts(temp_db):
 
     with Session(temp_db.engine) as session:
         row = session.exec(
-            select(ProductRecord).where(ProductRecord.product_id == 107087)
+            select(ProductRecord).where(ProductRecord.lcsc_number == "C105872")
         ).one()
     assert row.lcsc_number == "C105872"
     assert row.mfr_part_number == "RC0402FR-075K1L"
@@ -119,7 +119,7 @@ def test_raw_json_null_when_disabled(temp_db):
 
     with Session(temp_db.engine) as session:
         row = session.exec(
-            select(ProductRecord).where(ProductRecord.product_id == 201)
+            select(ProductRecord).where(ProductRecord.lcsc_number == "C201")
         ).one()
     assert row.raw_json is None
 
@@ -136,7 +136,7 @@ def test_raw_json_preserved_when_disabled_on_update(temp_db):
 
     with Session(temp_db.engine) as session:
         row = session.exec(
-            select(ProductRecord).where(ProductRecord.product_id == 202)
+            select(ProductRecord).where(ProductRecord.lcsc_number == "C202")
         ).one()
     assert row.stock == 20
     assert row.raw_json is not None
@@ -162,10 +162,10 @@ def test_mark_unseen_stock_zero_before(temp_db):
 
     with Session(temp_db.engine) as session:
         stock_101 = session.exec(
-            select(ProductRecord.stock).where(ProductRecord.product_id == 101)
+            select(ProductRecord.stock).where(ProductRecord.lcsc_number == "C101")
         ).one()
         stock_102 = session.exec(
-            select(ProductRecord.stock).where(ProductRecord.product_id == 102)
+            select(ProductRecord.stock).where(ProductRecord.lcsc_number == "C102")
         ).one()
     assert stock_101 == 50
     assert stock_102 == 0

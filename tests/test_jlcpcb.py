@@ -75,7 +75,7 @@ def test_jlcpcb_import_and_trigram_fts(tmp_path: Path, mock_cache_db: Path):
         db.rebuild_fts()
 
         with Session(db.engine) as session:
-            record = session.exec(select(ProductRecord).where(ProductRecord.product_id == 89188)).one()
+            record = session.exec(select(ProductRecord).where(ProductRecord.lcsc_number == "C89188")).one()
             assert record.lcsc_number == "C89188"
             assert record.mfr_part_number == "0603X105K160NT"
             assert record.brand_name == "Sunlord"
@@ -114,7 +114,7 @@ def test_property_priority_lcsc_overlay(tmp_path: Path, mock_cache_db: Path):
 
         # 3. Verify LCSC properties remain preserved while JLCPCB stock/pricing fields are updated
         with Session(db.engine) as session:
-            record = session.exec(select(ProductRecord).where(ProductRecord.product_id == 89188)).one()
+            record = session.exec(select(ProductRecord).where(ProductRecord.lcsc_number == "C89188")).one()
             assert record.brand_name == "Sunlord (Detailed)"
             assert record.description == "Detailed LCSC Description"
             assert record.jlcpcb_stock == 15369

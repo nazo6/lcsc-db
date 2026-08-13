@@ -113,7 +113,6 @@ def import_cache_db(
         _log("Syncing products from cache.sqlite3 (batch SQL import)...")
         cursor = conn.execute("""
             INSERT INTO products (
-                product_id,
                 lcsc_number,
                 mfr_part_number,
                 brand_id,
@@ -131,7 +130,6 @@ def import_cache_db(
                 jlcpcb_last_updated
             )
             SELECT
-                c.lcsc AS product_id,
                 'C' || c.lcsc AS lcsc_number,
                 c.mfr AS mfr_part_number,
                 c.manufacturer_id AS brand_id,
