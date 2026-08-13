@@ -48,7 +48,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: [Phase 1/2] Run LCSC Database Scraper (Generate DB 2: LCSC Only)
+      - name: "[Phase 1/2] Run LCSC Database Scraper (Generate DB 2: LCSC Only)"
         run: |
           INSTOCK_FLAG="--instock-only"
           if [ "${{ github.event.inputs.instock_only }}" = "false" ]; then
@@ -62,7 +62,7 @@ jobs:
         run: |
           uv run python scripts/benchmark_variants.py --db-path lcsc_only.sqlite3 --label "LCSC Only (DB 2)" --output-markdown "$GITHUB_STEP_SUMMARY"
 
-      - name: [Phase 2/2] Sync JLCPCB Component Database (Generate DB 1: JLCPCB Integrated)
+      - name: "[Phase 2/2] Sync JLCPCB Component Database (Generate DB 1: JLCPCB Integrated)"
         run: |
           cp lcsc_only.sqlite3 lcsc.sqlite3
           uv run lcsc-db sync-jlcpcb --db-path lcsc.sqlite3 --enable-fts --compress
