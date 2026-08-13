@@ -1,13 +1,14 @@
 """Unit tests for LCSCDatabase handling SQLite storage, lossless raw_json, and FTS5 search."""
 
 import json
+import time
 
 import pytest
 from sqlmodel import Session, select, text
 
 from lcsc_db.db import LCSCDatabase
 from lcsc_db.models import Product
-from lcsc_db.schema import ProductRecord, ScrapedSeenProductRecord
+from lcsc_db.schema import ProductRecord
 
 
 @pytest.fixture
@@ -142,36 +143,21 @@ def test_raw_json_preserved_when_disabled_on_update(temp_db):
     assert json.loads(row.raw_json)["productId"] == 202
 
 
-def test_db_progress_tracking(temp_db):
-    temp_db.init_schema()
-
-    assert not temp_db.is_query_completed(101, 5, "a")
-    assert not temp_db.has_incomplete_progress()
-
-    temp_db.mark_query_completed(101, brand_id=5, keyword="a", total_rows=100, scraped_count=100)
-    assert temp_db.is_query_completed(101, 5, "a")
-    assert temp_db.has_incomplete_progress()
-
-    temp_db.record_seen_products({1001, 1002})
-    with Session(temp_db.engine) as session:
-        seen = session.exec(select(ScrapedSeenProductRecord)).all()
-    assert len(seen) == 2
-
-    temp_db.clear_scrape_progress()
-    assert not temp_db.has_incomplete_progress()
-    assert not temp_db.is_query_completed(101, 5, "a")
-
-
-def test_mark_unseen_stock_zero_from_db(temp_db):
+def test_mark_unseen_stock_zero_before(temp_db):
     temp_db.init_schema()
 
     p1 = {"productId": 101, "productCode": "C101", "productModel": "M101", "stockNumber": 50}
     p2 = {"productId": 102, "productCode": "C102", "productModel": "M102", "stockNumber": 50}
     temp_db.upsert_products([Product.model_validate(p) for p in [p1, p2]])
 
-    # Only record 101 as seen
-    temp_db.record_seen_products({101})
-    updated_rows = temp_db.mark_unseen_stock_zero_from_db()
+    # Capture run start after the previous run's upserts, then re-upsert only p1
+    # (simulating it being scraped this run)
+    time.sleep(1.1)
+    run_start = temp_db.current_db_time()
+    time.sleep(1.1)
+    temp_db.upsert_products([Product.model_validate(p1)])
+
+    updated_rows = temp_db.mark_unseen_stock_zero_before(run_start)
     assert updated_rows == 1
 
     with Session(temp_db.engine) as session:

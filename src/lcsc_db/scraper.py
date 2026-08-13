@@ -1,10 +1,8 @@
 """Scraper module orchestrating LCSC category tree traversal and product scraping."""
 
 import logging
-import signal
 import string
-import time
-from typing import Any, Optional, Set, Tuple
+from typing import Optional, Set, Tuple
 
 from pydantic import BaseModel
 from tqdm import tqdm  # pyrefly: ignore[untyped-import]
@@ -27,9 +25,6 @@ class ScraperConfig(BaseModel):
     enable_fts: bool = True
     partition_threshold: int = 5000
     max_partition_depth: int = 2
-    max_duration: Optional[float] = None
-    resume: bool = True
-    fresh: bool = False
 
 
 class LCSCScraper:
@@ -50,31 +45,8 @@ class LCSCScraper:
         self.enable_fts = config.enable_fts
         self.partition_threshold = config.partition_threshold
         self.max_partition_depth = config.max_partition_depth
-        self.max_duration = config.max_duration
-        self.resume = config.resume
-        self.fresh = config.fresh
 
         self.seen_product_ids: Set[int] = set()
-        self.start_time: float = 0.0
-        self.interrupted: bool = False
-        self.time_limit_reached: bool = False
-
-    def _should_stop(self) -> bool:
-        """Check if scraping should be stopped due to signal or max duration time limit."""
-        if self.interrupted:
-            return True
-        if self.max_duration and self.start_time > 0:
-            elapsed = time.time() - self.start_time
-            if elapsed >= self.max_duration:
-                if not self.time_limit_reached:
-                    logger.warning(
-                        "Execution max duration limit reached (%.1fs >= %.1fs). Stopping gracefully...",
-                        elapsed,
-                        self.max_duration,
-                    )
-                    self.time_limit_reached = True
-                return True
-        return False
 
     def _extract_all_categories(
         self, cat_list: list[Category], flat_list: Optional[list[Category]] = None
@@ -133,23 +105,10 @@ class LCSCScraper:
         initial_product_num: Optional[int] = None,
     ) -> int:
         """Scrape products for a category, optionally partitioned by brand and/or keyword."""
-        if self._should_stop():
-            return 0
-
-        if self.resume and self.db.is_query_completed(cat_id, brand_id, keyword):
-            logger.debug(
-                "Skipping already completed query: cat=%d, brand=%s, kw=%s",
-                cat_id,
-                brand_id,
-                keyword,
-            )
-            return 0
-
         # Optimization: Immediately skip empty categories if initial_product_num is explicitly 0
         if initial_product_num == 0 and brand_id is None and keyword is None:
             if pbar:
                 pbar.set_postfix_str(f"{cat_path} (0 items)")
-            self.db.mark_query_completed(cat_id, brand_id, keyword, total_rows=0, scraped_count=0)
             return 0
 
         # Test first page to get totalRow count
@@ -170,7 +129,6 @@ class LCSCScraper:
                 b_str = f" [brand='{brand_name or brand_id}']" if brand_id else ""
                 kw_str = f" [kw='{keyword}']" if keyword else ""
                 pbar.set_postfix_str(f"{cat_path}{b_str}{kw_str} (0 items)")
-            self.db.mark_query_completed(cat_id, brand_id, keyword, total_rows=0, scraped_count=0)
             return 0
 
 
@@ -194,8 +152,6 @@ class LCSCScraper:
                     )
                     count = 0
                     for m in mfrs:
-                        if self._should_stop():
-                            break
                         m_id = m.id
                         m_name = m.name or str(m_id)
                         count += self._scrape_category_query(
@@ -221,8 +177,6 @@ class LCSCScraper:
                 )
                 count = 0
                 for char in PARTITION_CHARS:
-                    if self._should_stop():
-                        break
                     count += self._scrape_category_query(
                         cat_id=cat_id,
                         cat_path=cat_path,
@@ -250,9 +204,6 @@ class LCSCScraper:
         query_scraped_count = 0
 
         while True:
-            if self._should_stop():
-                break
-
             if page == 1:
                 res = res_first
             else:
@@ -280,15 +231,11 @@ class LCSCScraper:
 
             self.db.upsert_products(items, include_raw_json=self.include_raw_json)
 
-            pids: Set[int] = set()
             for item in items:
                 pid = item.product_id
                 if pid:
-                    pids.add(pid)
                     self.seen_product_ids.add(pid)
                     query_scraped_count += 1
-
-            self.db.record_seen_products(pids)
 
             if page >= total_pages:
                 break
@@ -297,11 +244,6 @@ class LCSCScraper:
                 break
 
             page += 1
-
-        if not self._should_stop():
-            self.db.mark_query_completed(
-                cat_id, brand_id, keyword, total_rows=total_rows, scraped_count=query_scraped_count
-            )
 
         return query_scraped_count
 
@@ -319,24 +261,10 @@ class LCSCScraper:
         Returns:
             Total count of unique products processed.
         """
-        def _signal_handler(signum: int, frame: Any) -> None:
-            logger.warning("Received signal %d. Shutdown requested...", signum)
-            self.interrupted = True
-
-        try:
-            signal.signal(signal.SIGINT, _signal_handler)
-            signal.signal(signal.SIGTERM, _signal_handler)
-        except (ValueError, AttributeError):
-            pass
-
-        self.start_time = time.time()
-
         logger.info("Initializing database schema...")
         self.db.init_schema(enable_fts=self.enable_fts)
 
-        if self.fresh:
-            logger.info("Fresh flag set. Clearing previous scrape progress...")
-            self.db.clear_scrape_progress()
+        run_start = self.db.current_db_time()
 
         logger.info("Fetching category tree from LCSC API...")
         cat_tree = self.api.get_category_tree()
@@ -364,9 +292,6 @@ class LCSCScraper:
 
         pbar = tqdm(leaf_cats, desc="Categories", unit="cat")
         for item in pbar:
-            if self._should_stop():
-                logger.info("Stopping category processing loop due to signal or duration limit.")
-                break
             if len(item) == 3:
                 cat_id, cat_path, initial_pnum = item
             else:
@@ -381,19 +306,11 @@ class LCSCScraper:
                 initial_product_num=initial_pnum,
             )
 
-
-        if self._should_stop():
-            logger.warning(
-                "Scraping suspended before completion (%d products processed so far). Progress saved for resume.",
-                len(self.seen_product_ids),
-            )
-            return len(self.seen_product_ids)
-
         logger.info("Completed all categories. Scraped %d unique products in this run.", len(self.seen_product_ids))
 
         if self.instock_only and target_category_id is None:
-            logger.info("Updating stock for unseen products to 0...")
-            self.db.mark_unseen_stock_zero_from_db()
+            logger.info("Updating stock for products not scraped this run to 0...")
+            self.db.mark_unseen_stock_zero_before(run_start)
 
         if self.enable_fts:
             logger.info("Rebuilding FTS5 full-text search index...")
@@ -401,9 +318,6 @@ class LCSCScraper:
 
         logger.info("Optimizing database...")
         self.db.vacuum_and_optimize()
-
-        logger.info("Clearing completed scrape progress tracking tables...")
-        self.db.clear_scrape_progress()
 
         return len(self.seen_product_ids)
 

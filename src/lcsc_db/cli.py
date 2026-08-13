@@ -46,11 +46,6 @@ class Settings(BaseSettings):
     max_pages: int | None = Field(
         None, description="Maximum pages to scrape per category (useful for dry runs / testing)."
     )
-    max_duration: float | None = Field(
-        None, description="Maximum execution time in seconds (e.g. 19800 for 5.5 hours) before graceful pause."
-    )
-    resume: bool = Field(True, description="Resume from previous scrape progress stored in database.")
-    fresh: bool = Field(False, description="Clear previous scrape progress and start a fresh scrape.")
     compress: bool = Field(False, description="Compress database to .tar.gz archive upon completion.")
     verbose: bool = Field(False, description="Enable verbose DEBUG logging.")
 
@@ -73,11 +68,6 @@ def run(settings: Settings) -> None:
     print(f"  In-Stock Only   : {settings.instock_only}")
     print(f"  Include Raw JSON: {settings.include_raw_json}")
     print(f"  Build FTS5 Index: {settings.enable_fts}")
-    if settings.max_duration:
-        print(f"  Max Duration    : {settings.max_duration}s")
-    print(f"  Resume Progress : {settings.resume}")
-    if settings.fresh:
-        print("  Fresh Scrape    : True (clearing previous progress)")
     if settings.category_id:
         print(f"  Category Filter : #{settings.category_id}")
     if settings.max_pages:
@@ -95,14 +85,8 @@ def run(settings: Settings) -> None:
             target_category_id=settings.category_id,
             max_pages_per_category=settings.max_pages,
         )
-        is_incomplete = db.has_incomplete_progress()
 
-    if is_incomplete:
-        print(
-            f"Scraping paused ({count} products processed in this run). Resumable state saved in {settings.db_path}."
-        )
-    else:
-        print(f"Successfully processed {count} products in {settings.db_path}.")
+    print(f"Successfully processed {count} products in {settings.db_path}.")
 
     if settings.compress:
         compress_database(settings.db_path)

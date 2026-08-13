@@ -147,27 +147,6 @@ class ProductParamRecord(SQLModel, table=True):
     param_value: str | None = None
 
 
-class ScrapeProgressRecord(SQLModel, table=True):
-    __tablename__ = "scrape_progress"  # pyrefly: ignore[bad-override]
-
-    category_id: int = Field(primary_key=True)
-    brand_id: int = Field(default=0, primary_key=True)
-    keyword: str = Field(default="", primary_key=True)
-    status: str = Field(default="completed")
-    total_rows: int | None = Field(default=0)
-    scraped_count: int | None = Field(default=0)
-    updated_at: datetime | None = Field(
-        default=None,
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP")},
-    )
-
-
-class ScrapedSeenProductRecord(SQLModel, table=True):
-    __tablename__ = "scraped_seen_products"  # pyrefly: ignore[bad-override]
-
-    product_id: int = Field(primary_key=True)
-
-
 FTS_DDL = """
 CREATE VIRTUAL TABLE IF NOT EXISTS products_fts USING fts5(
     lcsc_number,

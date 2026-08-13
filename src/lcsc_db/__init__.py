@@ -18,8 +18,6 @@ from lcsc_db.schema import (
     FTS_DDL,
     ProductParamRecord,
     ProductRecord,
-    ScrapeProgressRecord,
-    ScrapedSeenProductRecord,
 )
 from lcsc_db.scraper import LCSCScraper, ScraperConfig
 
@@ -42,8 +40,6 @@ __all__ = [
     "ProductParamRecord",
     "ProductQueryResult",
     "ProductRecord",
-    "ScrapeProgressRecord",
-    "ScrapedSeenProductRecord",
     "ScraperConfig",
 ]
 __version__ = "0.1.0"

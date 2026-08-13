@@ -15,9 +15,6 @@ def test_cli_help(capsys):
     assert "--instock-only" in out
     assert "--include-raw-json" in out
     assert "--enable-fts" in out
-    assert "--max-duration" in out
-    assert "--resume" in out
-    assert "--fresh" in out
 
 
 def test_cli_dry_run(tmp_path, capsys):
@@ -33,8 +30,6 @@ def test_cli_dry_run(tmp_path, capsys):
             "1",
             "--delay",
             "0.1",
-            "--max-duration",
-            "60",
             "--compress",
         ],
     )

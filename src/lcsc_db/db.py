@@ -3,23 +3,15 @@
 import logging
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Set
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import delete, func, inspect, text, update
+from sqlalchemy import delete, inspect, text, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, col, create_engine, select
 
 from lcsc_db.models import Category, Product
-from lcsc_db.schema import (
-    FTS_DDL,
-    CategoryRecord,
-    ProductParamRecord,
-    ProductRecord,
-    ScrapeProgressRecord,
-    ScrapedSeenProductRecord,
-)
+from lcsc_db.schema import FTS_DDL, CategoryRecord, ProductParamRecord, ProductRecord
 
 logger = logging.getLogger(__name__)
 
@@ -174,101 +166,16 @@ class LCSCDatabase:
             conn.execute("PRAGMA optimize;")
             conn.execute("VACUUM;")
 
-    def is_query_completed(
-        self,
-        category_id: int,
-        brand_id: Optional[int] = None,
-        keyword: Optional[str] = None,
-    ) -> bool:
-        """Check if a specific category query has been completed in the current scrape pass."""
-        b_id = brand_id or 0
-        kw = keyword or ""
-        stmt = select(ScrapeProgressRecord).where(
-            col(ScrapeProgressRecord.category_id) == category_id,
-            col(ScrapeProgressRecord.brand_id) == b_id,
-            col(ScrapeProgressRecord.keyword) == kw,
-            col(ScrapeProgressRecord.status) == "completed",
-        )
-        with Session(self.engine) as session:
-            return session.exec(stmt).first() is not None
+    def current_db_time(self) -> str:
+        """Return the current UTC time as stored by SQLite (CURRENT_TIMESTAMP)."""
+        with self.engine.connect() as conn:
+            return str(conn.exec_driver_sql("SELECT CURRENT_TIMESTAMP").scalar())
 
-    def mark_query_completed(
-        self,
-        category_id: int,
-        brand_id: Optional[int] = None,
-        keyword: Optional[str] = None,
-        total_rows: int = 0,
-        scraped_count: int = 0,
-    ) -> None:
-        """Mark a category query as completed in scrape_progress."""
-        b_id = brand_id or 0
-        kw = keyword or ""
-        insert_stmt = sqlite_insert(ScrapeProgressRecord)
-        stmt = insert_stmt.on_conflict_do_update(
-            index_elements=[
-                col(ScrapeProgressRecord.category_id),
-                col(ScrapeProgressRecord.brand_id),
-                col(ScrapeProgressRecord.keyword),
-            ],
-            set_={
-                "status": "completed",
-                "total_rows": total_rows,
-                "scraped_count": scraped_count,
-                "updated_at": text("CURRENT_TIMESTAMP"),
-            },
-        )
-        with self._tx() as session:
-            session.exec(
-                stmt,
-                params=[
-                    {
-                        "category_id": category_id,
-                        "brand_id": b_id,
-                        "keyword": kw,
-                        "status": "completed",
-                        "total_rows": total_rows,
-                        "scraped_count": scraped_count,
-                    }
-                ],
-            )
-
-    def record_seen_products(self, product_ids: Set[int]) -> None:
-        """Record product IDs as seen during the current scrape pass."""
-        if not product_ids:
-            return
-        stmt = sqlite_insert(ScrapedSeenProductRecord).on_conflict_do_nothing(
-            index_elements=[col(ScrapedSeenProductRecord.product_id)]
-        )
-        rows = [{"product_id": pid} for pid in product_ids]
-        with self._tx() as session:
-            session.exec(stmt, params=rows)
-
-    def has_incomplete_progress(self) -> bool:
-        """Check if there is active in-progress scrape data in progress tables."""
-        if not self._has_table("scrape_progress"):
-            return False
-        stmt = select(func.count()).select_from(ScrapeProgressRecord)
-        with Session(self.engine) as session:
-            return session.exec(stmt).one() > 0
-
-    def clear_scrape_progress(self) -> None:
-        """Clear all scrape progress and seen products tables after a full scrape cycle finishes."""
-        with self._tx() as session:
-            session.exec(delete(ScrapeProgressRecord))
-            session.exec(delete(ScrapedSeenProductRecord))
-
-    def mark_unseen_stock_zero_from_db(self) -> int:
-        """Mark products stock as 0 if they were not seen in the current multi-stage scrape run."""
-        stmt = select(func.count()).select_from(ScrapedSeenProductRecord)
-        with Session(self.engine) as session:
-            seen_count = session.exec(stmt).one() or 0
-        if seen_count == 0:
-            return 0
-
-        subq = select(col(ScrapedSeenProductRecord.product_id))
+    def mark_unseen_stock_zero_before(self, run_start: str) -> int:
+        """Mark products not updated since ``run_start`` as stock 0 (no longer in stock)."""
         update_stmt = (
             update(ProductRecord)
-            .where(col(ProductRecord.product_id).notin_(subq))
+            .where(col(ProductRecord.last_updated) < run_start)
             .values(stock=0, stock_sz=0, stock_js=0, stock_hk=0)
         )
         with self._tx() as session:

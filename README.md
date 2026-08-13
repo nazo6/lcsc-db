@@ -46,9 +46,6 @@ uv run lcsc-db --instock-only --compress
 | `--enable-fts / --no-enable-fts` | `True` | Build SQLite `FTS5` full-text search index |
 | `--category-id` | `None` | Scrape a single category ID |
 | `--max-pages` | `None` | Limit max pages per category |
-| `--max-duration` | `None` | Max execution time (seconds) before graceful pause |
-| `--resume / --no-resume` | `True` | Resume from previous scrape progress |
-| `--fresh / --no-fresh` | `False` | Clear previous scrape progress and start fresh |
 | `--compress / --no-compress` | `False` | Compress database to `.tar.gz` upon completion |
 | `--verbose / --no-verbose` | `False` | Enable verbose DEBUG logging |
 
