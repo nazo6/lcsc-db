@@ -103,7 +103,7 @@ def import_cache_db(
         _log("Syncing categories from cache.sqlite3...")
         conn.execute("""
             INSERT INTO categories (id, name_en)
-            SELECT id, second
+            SELECT id, subcategory
             FROM cache_db.categories
             WHERE 1
             ON CONFLICT(id) DO UPDATE SET
@@ -139,8 +139,8 @@ def import_cache_db(
                 c.package AS package,
                 c.description AS description,
                 c.category_id AS category_id,
-                cat.first AS first_category_name,
-                cat.second AS second_category_name,
+                cat.category AS first_category_name,
+                cat.subcategory AS second_category_name,
                 c.datasheet AS pdf_url,
                 c.stock AS jlcpcb_stock,
                 c.price AS jlcpcb_price_ladder,

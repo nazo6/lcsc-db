@@ -20,8 +20,8 @@ def mock_cache_db(tmp_path: Path) -> Path:
     conn.execute("""
         CREATE TABLE categories (
             id INTEGER PRIMARY KEY,
-            first TEXT NOT NULL,
-            second TEXT NOT NULL
+            category TEXT NOT NULL,
+            subcategory TEXT NOT NULL
         );
     """)
     conn.execute("""
