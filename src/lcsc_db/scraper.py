@@ -5,11 +5,11 @@ import string
 from typing import Optional, Set, Tuple
 
 from pydantic import BaseModel
-from tqdm import tqdm  # pyrefly: ignore[untyped-import]
 
 from lcsc_db.api import LCSCApi
 from lcsc_db.db import LCSCDatabase
 from lcsc_db.models import Category, CatalogEntry
+from lcsc_db.progress import ScrapeProgressLogger
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,15 @@ class LCSCScraper:
         self.max_partition_depth = config.max_partition_depth
 
         self.seen_product_ids: Set[int] = set()
+        self.progress_logger: Optional[ScrapeProgressLogger] = None
+
+    @property
+    def total_expected_products(self) -> int:
+        return self.progress_logger.total_expected_products if self.progress_logger else 0
+
+    @property
+    def total_fetched_items(self) -> int:
+        return self.progress_logger.total_fetched_items if self.progress_logger else 0
 
     def _extract_all_categories(
         self, cat_list: list[Category], flat_list: Optional[list[Category]] = None
@@ -101,14 +110,19 @@ class LCSCScraper:
         brand_name: Optional[str] = None,
         keyword: Optional[str] = None,
         max_pages_per_category: Optional[int] = None,
-        pbar: Optional[tqdm] = None,
         initial_product_num: Optional[int] = None,
+        cat_idx: int = 1,
+        total_cats: int = 1,
     ) -> int:
         """Scrape products for a category, optionally partitioned by brand and/or keyword."""
         # Optimization: Immediately skip empty categories if initial_product_num is explicitly 0
         if initial_product_num == 0 and brand_id is None and keyword is None:
-            if pbar:
-                pbar.set_postfix_str(f"{cat_path} (0 items)")
+            if self.progress_logger:
+                self.progress_logger.log_empty(
+                    cat_idx=cat_idx,
+                    total_cats=total_cats,
+                    cat_path=cat_path,
+                )
             return 0
 
         # Test first page to get totalRow count
@@ -125,12 +139,16 @@ class LCSCScraper:
 
         # Optimization: Immediately skip empty categories/queries
         if total_rows == 0:
-            if pbar:
-                b_str = f" [brand='{brand_name or brand_id}']" if brand_id else ""
-                kw_str = f" [kw='{keyword}']" if keyword else ""
-                pbar.set_postfix_str(f"{cat_path}{b_str}{kw_str} (0 items)")
+            if self.progress_logger:
+                self.progress_logger.log_empty(
+                    cat_idx=cat_idx,
+                    total_cats=total_cats,
+                    cat_path=cat_path,
+                    brand_name=brand_name,
+                    brand_id=brand_id,
+                    keyword=keyword,
+                )
             return 0
-
 
         # Check if sub-partitioning is required
         if total_rows >= self.partition_threshold:
@@ -161,7 +179,8 @@ class LCSCScraper:
                             brand_name=m_name,
                             keyword=keyword,
                             max_pages_per_category=max_pages_per_category,
-                            pbar=pbar,
+                            cat_idx=cat_idx,
+                            total_cats=total_cats,
                         )
                     return count
 
@@ -184,7 +203,8 @@ class LCSCScraper:
                         brand_name=brand_name,
                         keyword=char,
                         max_pages_per_category=max_pages_per_category,
-                        pbar=pbar,
+                        cat_idx=cat_idx,
+                        total_cats=total_cats,
                     )
                 return count
 
@@ -220,12 +240,6 @@ class LCSCScraper:
             total_pages = res.total_page or 0
             t_rows = res.total_row or 0
 
-            if pbar:
-                page_info = f"p.{page}/{total_pages}" if total_pages > 1 else f"p.{page}"
-                b_str = f" [brand='{brand_name or brand_id}']" if brand_id else ""
-                kw_str = f" [kw='{keyword}']" if keyword else ""
-                pbar.set_postfix_str(f"{cat_path}{b_str}{kw_str} ({t_rows} items, {page_info})")
-
             if not items:
                 break
 
@@ -236,6 +250,20 @@ class LCSCScraper:
                 if pid:
                     self.seen_product_ids.add(pid)
                     query_scraped_count += 1
+
+            if self.progress_logger:
+                self.progress_logger.log_page(
+                    cat_idx=cat_idx,
+                    total_cats=total_cats,
+                    cat_path=cat_path,
+                    page=page,
+                    total_pages=total_pages,
+                    t_rows=t_rows,
+                    items_count=len(items),
+                    brand_name=brand_name,
+                    brand_id=brand_id,
+                    keyword=keyword,
+                )
 
             if page >= total_pages:
                 break
@@ -288,10 +316,18 @@ class LCSCScraper:
                     (cid, path, None) for cid, path in self._find_leaf_categories(cat_tree)
                 ]
 
-        logger.info("Starting scrape across %d categories...", len(leaf_cats))
+        total_cats = len(leaf_cats)
+        total_expected = sum(
+            pnum for item in leaf_cats if len(item) == 3 and (pnum := item[2]) is not None
+        )
 
-        pbar = tqdm(leaf_cats, desc="Categories", unit="cat")
-        for item in pbar:
+        self.progress_logger = ScrapeProgressLogger(
+            total_expected_products=total_expected,
+            total_cats=total_cats,
+        )
+        self.progress_logger.start()
+
+        for cat_idx, item in enumerate(leaf_cats, 1):
             if len(item) == 3:
                 cat_id, cat_path, initial_pnum = item
             else:
@@ -302,11 +338,13 @@ class LCSCScraper:
                 cat_id=cat_id,
                 cat_path=cat_path,
                 max_pages_per_category=max_pages_per_category,
-                pbar=pbar,
                 initial_product_num=initial_pnum,
+                cat_idx=cat_idx,
+                total_cats=total_cats,
             )
 
-        logger.info("Completed all categories. Scraped %d unique products in this run.", len(self.seen_product_ids))
+        if self.progress_logger:
+            self.progress_logger.complete(len(self.seen_product_ids))
 
         if self.instock_only and target_category_id is None:
             logger.info("Updating stock for products not scraped this run to 0...")
@@ -320,4 +358,6 @@ class LCSCScraper:
         self.db.vacuum_and_optimize()
 
         return len(self.seen_product_ids)
+
+
 

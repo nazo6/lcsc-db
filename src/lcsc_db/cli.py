@@ -86,7 +86,15 @@ def run(settings: Settings) -> None:
             max_pages_per_category=settings.max_pages,
         )
 
-    print(f"Successfully processed {count} products in {settings.db_path}.")
+        expected_str = (
+            f"{scraper.total_expected_products:,}"
+            if scraper.total_expected_products > 0
+            else "N/A"
+        )
+        print(
+            f"Successfully processed {count:,} unique products in {settings.db_path} "
+            f"(Expected: {expected_str} products, Fetched: {scraper.total_fetched_items:,} items)."
+        )
 
     if settings.compress:
         compress_database(settings.db_path)

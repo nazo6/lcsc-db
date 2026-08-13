@@ -132,3 +132,59 @@ def test_scraper_keyword_fallback_and_warning(tmp_path, caplog):
 
     db.close()
 
+
+def test_format_duration():
+    from lcsc_db.progress import format_duration
+
+    assert format_duration(5) == "5s"
+    assert format_duration(65) == "1m 05s"
+    assert format_duration(3665) == "1h 01m 05s"
+
+
+def test_scraper_item_tracking_and_catalog_list_expected(tmp_path):
+    """Test that total_expected_products and total_fetched_items are accurately tracked."""
+    db_file = tmp_path / "test_item_tracking.sqlite3"
+    api = LCSCApi(LCSCApiConfig(delay_seconds=0.0))
+    db = LCSCDatabase(str(db_file))
+
+    scraper = LCSCScraper(api=api, db=db)
+
+    api.get_category_tree = MagicMock(return_value=[])
+    api.get_catalog_list = MagicMock(
+        return_value=CatalogListResult.model_validate({
+            "catalogList": [
+                {
+                    "catalogId": 1,
+                    "catalogNameEn": "Resistors",
+                    "productNum": 150,
+                    "childCatelogs": [],
+                },
+                {
+                    "catalogId": 2,
+                    "catalogNameEn": "Capacitors",
+                    "productNum": 250,
+                    "childCatelogs": [],
+                },
+            ]
+        })
+    )
+
+    api.query_products = MagicMock(
+        return_value=ProductQueryResult(
+            total_row=10,
+            total_page=1,
+            data_list=[
+                Product(product_id=1, lcsc_number="C1"),
+                Product(product_id=2, lcsc_number="C2"),
+            ],
+        )
+    )
+
+    count = scraper.run()
+    assert scraper.total_expected_products == 400
+    assert scraper.total_fetched_items == 4  # 2 products fetched per category (2 categories)
+    assert count == 2  # Deduplicated unique product IDs: {1, 2}
+
+    db.close()
+
+

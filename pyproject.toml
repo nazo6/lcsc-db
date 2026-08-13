@@ -15,7 +15,6 @@ dependencies = [
     "pytest>=9.1.1",
     "requests>=2.34.2",
     "sqlmodel>=0.0.29",
-    "tqdm>=4.70.0",
 ]
 
 [project.scripts]
