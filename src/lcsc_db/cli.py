@@ -16,8 +16,8 @@ from lcsc_db.scraper import LCSCScraper, ScraperConfig
 
 
 def compress_database(db_path: str) -> str:
-    """Compress database file to .tar.gz archive using pigz/tar if available, falling back to tarfile."""
-    archive_path = f"{db_path}.tar.gz"
+    """Compress database file to .tar.xz archive using xz/tar if available, falling back to tarfile."""
+    archive_path = f"{db_path}.tar.xz"
     print(f"Compressing {db_path} -> {archive_path}...")
 
     db_path_obj = Path(db_path)
@@ -26,13 +26,9 @@ def compress_database(db_path: str) -> str:
     archive_path_obj = Path(archive_path).resolve()
 
     compressed_fast = False
-    if shutil.which("tar") is not None:
+    if shutil.which("tar") is not None and shutil.which("xz") is not None:
         try:
-            cmd = ["tar"]
-            if shutil.which("pigz") is not None:
-                cmd.extend(["-I", "pigz", "-cf", str(archive_path_obj), filename])
-            else:
-                cmd.extend(["-czf", str(archive_path_obj), filename])
+            cmd = ["tar", "-I", "xz -T0", "-cf", str(archive_path_obj), filename]
             subprocess.run(cmd, cwd=str(parent_dir), check=True, capture_output=True)
             compressed_fast = True
         except Exception as e:
@@ -40,7 +36,7 @@ def compress_database(db_path: str) -> str:
             compressed_fast = False
 
     if not compressed_fast:
-        with tarfile.open(archive_path, "w:gz") as tar:
+        with tarfile.open(archive_path, "w:xz") as tar:
             tar.add(db_path, arcname=os.path.basename(db_path))
 
     size_mb = os.path.getsize(archive_path) / (1024 * 1024)
@@ -149,7 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
     jlc_parser.add_argument("--db-path", default="lcsc.sqlite3", help="Output SQLite database file path.")
     jlc_parser.add_argument("--cache-dir", default=".jlcpcb_cache", help="Temporary directory to download JLCPCB cache chunks.")
     jlc_parser.add_argument("--enable-fts", action=argparse.BooleanOptionalAction, default=True, help="Build SQLite FTS5 trigram search index.")
-    jlc_parser.add_argument("--compress", action=argparse.BooleanOptionalAction, default=False, help="Compress database to .tar.gz archive upon completion.")
+    jlc_parser.add_argument("--compress", action=argparse.BooleanOptionalAction, default=False, help="Compress database to .tar.xz archive upon completion.")
     jlc_parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=False, help="Enable verbose DEBUG logging.")
     jlc_parser.set_defaults(func=run_sync_jlcpcb)
 
@@ -165,7 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
     scrape_parser.add_argument("--enable-fts", action=argparse.BooleanOptionalAction, default=True, help="Build SQLite FTS5 search index.")
     scrape_parser.add_argument("--category-id", type=int, default=None, help="Scrape only a specific category ID.")
     scrape_parser.add_argument("--max-pages", type=int, default=None, help="Maximum pages to scrape per category.")
-    scrape_parser.add_argument("--compress", action=argparse.BooleanOptionalAction, default=False, help="Compress database to .tar.gz archive upon completion.")
+    scrape_parser.add_argument("--compress", action=argparse.BooleanOptionalAction, default=False, help="Compress database to .tar.xz archive upon completion.")
     scrape_parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=False, help="Enable verbose DEBUG logging.")
     scrape_parser.set_defaults(func=run_scrape_lcsc)
 
@@ -177,7 +173,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--enable-fts", action=argparse.BooleanOptionalAction, default=True, help="Build SQLite FTS5 search index.")
     parser.add_argument("--category-id", type=int, default=None, help="Scrape only a specific category ID.")
     parser.add_argument("--max-pages", type=int, default=None, help="Maximum pages to scrape per category.")
-    parser.add_argument("--compress", action=argparse.BooleanOptionalAction, default=False, help="Compress database to .tar.gz archive upon completion.")
+    parser.add_argument("--compress", action=argparse.BooleanOptionalAction, default=False, help="Compress database to .tar.xz archive upon completion.")
     parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=False, help="Enable verbose DEBUG logging.")
     parser.set_defaults(func=run_scrape_lcsc)
 

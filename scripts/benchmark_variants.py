@@ -14,23 +14,19 @@ from pathlib import Path
 
 
 def compress_file(file_path: Path) -> Path:
-    """Compress a file to .tar.gz and return the archive path using pigz/tar if available."""
-    archive_path = file_path.with_suffix(file_path.suffix + ".tar.gz")
+    """Compress a file to .tar.xz and return the archive path using xz/tar if available."""
+    archive_path = file_path.with_suffix(file_path.suffix + ".tar.xz")
     compressed_fast = False
-    if shutil.which("tar") is not None:
+    if shutil.which("tar") is not None and shutil.which("xz") is not None:
         try:
-            cmd = ["tar"]
-            if shutil.which("pigz") is not None:
-                cmd.extend(["-I", "pigz", "-cf", str(archive_path.resolve()), file_path.name])
-            else:
-                cmd.extend(["-czf", str(archive_path.resolve()), file_path.name])
+            cmd = ["tar", "-I", "xz -T0", "-cf", str(archive_path.resolve()), file_path.name]
             subprocess.run(cmd, cwd=str(file_path.parent), check=True, capture_output=True)
             compressed_fast = True
         except Exception:
             compressed_fast = False
 
     if not compressed_fast:
-        with tarfile.open(archive_path, "w:gz") as tar:
+        with tarfile.open(archive_path, "w:xz") as tar:
             tar.add(file_path, arcname=file_path.name)
     return archive_path
 
@@ -56,12 +52,12 @@ def measure_variant(
         archive_path = compress_file(tmp_db)
 
         db_bytes = tmp_db.stat().st_size
-        gz_bytes = archive_path.stat().st_size
+        xz_bytes = archive_path.stat().st_size
 
         return {
             "variant": variant_name,
             "db_size_mb": db_bytes / (1024 * 1024),
-            "gz_size_mb": gz_bytes / (1024 * 1024),
+            "xz_size_mb": xz_bytes / (1024 * 1024),
         }
 
 
@@ -103,27 +99,27 @@ def run_benchmark(db_path: Path, label: str, output_markdown: Path | None = None
     results = [full, no_fts, no_raw, minimal]
 
     base_db_mb = full["db_size_mb"]
-    base_gz_mb = full["gz_size_mb"]
+    base_xz_mb = full["xz_size_mb"]
 
     lines = [
         f"### Size Benchmark Report: {label}",
         "",
-        "| Variant | DB Size (MB) | Savings | Archive Size (MB) | Archive Savings |",
+        "| Variant | DB Size (MB) | Savings | Archive (.tar.xz) | Archive Savings |",
         "| :--- | :---: | :---: | :---: | :---: |",
     ]
 
     for r in results:
         db_mb = r["db_size_mb"]
-        gz_mb = r["gz_size_mb"]
+        xz_mb = r["xz_size_mb"]
 
         db_diff = ((db_mb - base_db_mb) / base_db_mb) * 100 if base_db_mb > 0 else 0
-        gz_diff = ((gz_mb - base_gz_mb) / base_gz_mb) * 100 if base_gz_mb > 0 else 0
+        xz_diff = ((xz_mb - base_xz_mb) / base_xz_mb) * 100 if base_xz_mb > 0 else 0
 
         db_diff_str = "Baseline" if r == full else f"{db_diff:+.1f}%"
-        gz_diff_str = "Baseline" if r == full else f"{gz_diff:+.1f}%"
+        xz_diff_str = "Baseline" if r == full else f"{xz_diff:+.1f}%"
 
         lines.append(
-            f"| **{r['variant']}** | {db_mb:.2f} MB | {db_diff_str} | {gz_mb:.2f} MB | {gz_diff_str} |"
+            f"| **{r['variant']}** | {db_mb:.2f} MB | {db_diff_str} | {xz_mb:.2f} MB | {xz_diff_str} |"
         )
 
     lines.append("")

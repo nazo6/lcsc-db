@@ -33,11 +33,6 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install system dependencies (pigz for parallel compression)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pigz
-
       - name: Install dependencies
         run: uv sync
 
@@ -45,15 +40,15 @@ jobs:
         run: |
           TARGET="${{ github.event.inputs.target_db || 'both' }}"
           if [ "$TARGET" = "both" ] || [ "$TARGET" = "lcsc_only" ]; then
-            echo "Downloading lcsc_only.sqlite3.tar.gz..."
-            gh release download latest -p "lcsc_only.sqlite3.tar.gz"
-            tar -I pigz -xf lcsc_only.sqlite3.tar.gz || tar -xzf lcsc_only.sqlite3.tar.gz
+            echo "Downloading lcsc_only database release asset..."
+            gh release download latest -p "lcsc_only.sqlite3.tar.xz"
+            tar -I 'xz -T0' -xf lcsc_only.sqlite3.tar.xz || tar -Jxf lcsc_only.sqlite3.tar.xz
           fi
 
           if [ "$TARGET" = "both" ] || [ "$TARGET" = "jlcpcb_integrated" ]; then
-            echo "Downloading lcsc.sqlite3.tar.gz..."
-            gh release download latest -p "lcsc.sqlite3.tar.gz"
-            tar -I pigz -xf lcsc.sqlite3.tar.gz || tar -xzf lcsc.sqlite3.tar.gz
+            echo "Downloading lcsc database release asset..."
+            gh release download latest -p "lcsc.sqlite3.tar.xz"
+            tar -I 'xz -T0' -xf lcsc.sqlite3.tar.xz || tar -Jxf lcsc.sqlite3.tar.xz
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -8,7 +8,7 @@ Automated scraper and SQLite database builder for all LCSC electronics component
 - **Fast Full-Text Search**: Built-in SQLite `FTS5` virtual table indexing part numbers, brands, packages, and descriptions.
 - **Smart Access Reduction (`--instock-only`)**: Cuts API traffic by ~70% by fetching active/in-stock parts and retaining historical parts in SQLite.
 - **`uv` Package Management**: Initialized as a library using `uv init --lib`, managed with `uv`.
-- **Automated GitHub Action**: Runs weekly to update the SQLite database and upload a `.tar.gz` release asset to GitHub Releases.
+- **Automated GitHub Action**: Runs weekly to update the SQLite database and upload a `.tar.xz` release asset to GitHub Releases.
 
 ## Installation
 
@@ -46,7 +46,7 @@ uv run lcsc-db --instock-only --compress
 | `--enable-fts / --no-enable-fts` | `True` | Build SQLite `FTS5` full-text search index |
 | `--category-id` | `None` | Scrape a single category ID |
 | `--max-pages` | `None` | Limit max pages per category |
-| `--compress / --no-compress` | `False` | Compress database to `.tar.gz` upon completion |
+| `--compress / --no-compress` | `False` | Compress database to `.tar.xz` upon completion |
 | `--verbose / --no-verbose` | `False` | Enable verbose DEBUG logging |
 
 ## Running Tests
