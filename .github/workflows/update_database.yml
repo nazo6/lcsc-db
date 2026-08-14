@@ -54,7 +54,7 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Download existing database release asset (for delta update)
+      - name: Download existing database from GitHub Release
         continue-on-error: true
         run: |
           gh release download latest -p "lcsc_only.sqlite3.tar.xz" || true
@@ -82,15 +82,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload workflow artifact (lcsc_only)
-        uses: actions/upload-artifact@v7
-        with:
-          name: lcsc_only_db
-          path: |
-            lcsc_only.sqlite3
-            lcsc_only.sqlite3.tar.xz
-          retention-days: 1
-
   # =========================================================================
   # Phase 2: Sync JLCPCB Component Data -> lcsc.sqlite3
   # =========================================================================
@@ -117,19 +108,11 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Download lcsc_only database artifact
-        continue-on-error: true
-        uses: actions/download-artifact@v7
-        with:
-          name: lcsc_only_db
-
-      - name: Prepare Base Database (Fallback to Release if artifact unavailable)
+      - name: Download lcsc_only database from latest GitHub Release
         run: |
-          if [ ! -f "lcsc_only.sqlite3" ]; then
-            echo "Artifact not found. Downloading lcsc_only database from latest release..."
-            gh release download latest -p "lcsc_only.sqlite3.tar.xz"
-            tar -I 'xz -T0' -xf lcsc_only.sqlite3.tar.xz || tar -Jxf lcsc_only.sqlite3.tar.xz
-          fi
+          echo "Downloading lcsc_only database archive from latest release..."
+          gh release download latest -p "lcsc_only.sqlite3.tar.xz"
+          tar -I 'xz -T0' -xf lcsc_only.sqlite3.tar.xz || tar -Jxf lcsc_only.sqlite3.tar.xz
           cp lcsc_only.sqlite3 lcsc.sqlite3
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -144,15 +127,6 @@ jobs:
           uv run lcsc-db update-release --files lcsc.sqlite3
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload workflow artifact (lcsc_integrated)
-        uses: actions/upload-artifact@v7
-        with:
-          name: lcsc_integrated_db
-          path: |
-            lcsc.sqlite3
-            lcsc.sqlite3.tar.xz
-          retention-days: 1
 
   # =========================================================================
   # Phase 3: Generate Optimized Variants -> lcsc_fts_only.sqlite3
@@ -180,19 +154,11 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Download lcsc database artifact
-        continue-on-error: true
-        uses: actions/download-artifact@v7
-        with:
-          name: lcsc_integrated_db
-
-      - name: Prepare Base Database (Fallback to Release if artifact unavailable)
+      - name: Download lcsc database from latest GitHub Release
         run: |
-          if [ ! -f "lcsc.sqlite3" ]; then
-            echo "Artifact not found. Downloading lcsc database from latest release..."
-            gh release download latest -p "lcsc.sqlite3.tar.xz"
-            tar -I 'xz -T0' -xf lcsc.sqlite3.tar.xz || tar -Jxf lcsc.sqlite3.tar.xz
-          fi
+          echo "Downloading lcsc database archive from latest release..."
+          gh release download latest -p "lcsc.sqlite3.tar.xz"
+          tar -I 'xz -T0' -xf lcsc.sqlite3.tar.xz || tar -Jxf lcsc.sqlite3.tar.xz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
