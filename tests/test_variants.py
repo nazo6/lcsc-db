@@ -134,3 +134,17 @@ def test_generate_all_variants(sample_db: Path, tmp_path: Path) -> None:
     assert len(results) == 2
     assert (tmp_path / "sample_fts_only.sqlite3").exists()
     assert (tmp_path / "sample_no_raw_json.sqlite3").exists()
+
+
+def test_generate_lcsc_only_variant(sample_db: Path, tmp_path: Path) -> None:
+    lcsc_only_db = tmp_path / "lcsc_only.sqlite3"
+    import shutil
+
+    shutil.copy2(sample_db, lcsc_only_db)
+    res = generate_variant(lcsc_only_db, "fts_only", compress=True)
+    assert res["db_path"].name == "lcsc_only_fts_only.sqlite3"
+    assert res["db_path"].exists()
+    assert res["archive_path"] is not None
+    assert res["archive_path"].name == "lcsc_only_fts_only.sqlite3.tar.xz"
+    assert res["archive_path"].exists()
+

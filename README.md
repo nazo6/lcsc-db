@@ -10,6 +10,7 @@ Pre-built SQLite databases compressed with `.tar.xz` are published weekly in
 | Database Variant | Archive File | Description |
 | :--- | :--- | :--- |
 | **FTS Search DB** *(Recommended / Main)* | `lcsc_fts_only.sqlite3.tar.xz` | High-performance standalone FTS5 search DB with all attributes (`UNINDEXED`) & categories. |
+| **LCSC Only (FTS Search DB)** | `lcsc_only_fts_only.sqlite3.tar.xz` | Standalone FTS5 search DB for LCSC catalog only (with all attributes `UNINDEXED` & categories). |
 | **JLCPCB Integrated** *(Base Relational DB)* | `lcsc.sqlite3.tar.xz` | Full LCSC catalog merged with JLCPCB stock & library types (relational tables, with `raw_json`). |
 | **LCSC Only** *(Base Relational DB)* | `lcsc_only.sqlite3.tar.xz` | Full LCSC catalog with live stock, pricing tiers (relational tables, with `raw_json`). |
 

@@ -20,6 +20,11 @@ KNOWN_ASSETS_META: dict[str, dict[str, Any]] = {
         "archive_name": "lcsc_fts_only.sqlite3.tar.xz",
         "description": "Standalone FTS5 search DB with all attributes (UNINDEXED) & categories",
     },
+    "lcsc_only_fts_only.sqlite3": {
+        "variant": "LCSC Only (FTS Search DB)",
+        "archive_name": "lcsc_only_fts_only.sqlite3.tar.xz",
+        "description": "Standalone FTS5 search DB for LCSC catalog only",
+    },
     "lcsc.sqlite3": {
         "variant": "JLCPCB Integrated (Base DB)",
         "archive_name": "lcsc.sqlite3.tar.xz",
@@ -81,6 +86,7 @@ def build_release_notes(assets_meta: dict[str, dict[str, Any]], updated_at_str: 
     # Sort items based on standard order if possible
     order = [
         "lcsc_fts_only.sqlite3",
+        "lcsc_only_fts_only.sqlite3",
         "lcsc.sqlite3",
         "lcsc_only.sqlite3",
         "lcsc_no_raw_json.sqlite3",

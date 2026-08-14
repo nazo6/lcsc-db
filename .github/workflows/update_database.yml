@@ -129,10 +129,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # =========================================================================
-  # Phase 3: Generate Optimized Variants -> lcsc_fts_only.sqlite3
+  # Phase 3: Generate Optimized Variants -> lcsc_fts_only.sqlite3, lcsc_only_fts_only.sqlite3
   # =========================================================================
   phase3-variants:
-    name: "[Phase 3/3] Generate Variants (lcsc_fts_only.sqlite3)"
+    name: "[Phase 3/3] Generate Variants (lcsc_fts_only.sqlite3, lcsc_only_fts_only.sqlite3)"
     needs: [phase2-jlcpcb-sync]
     runs-on: ubuntu-latest
     if: always() && !cancelled() && (needs.phase2-jlcpcb-sync.result == 'success' || needs.phase2-jlcpcb-sync.result == 'skipped') && (github.event_name == 'schedule' || github.event.inputs.phase == 'all' || github.event.inputs.phase == 'phase3_variants' || github.event.inputs.phase == 'phase2_and_3' || github.event.inputs.phase == '')
@@ -154,21 +154,24 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Download lcsc database from latest GitHub Release
+      - name: Download databases from latest GitHub Release
         run: |
-          echo "Downloading lcsc database archive from latest release..."
+          echo "Downloading database archives from latest release..."
           gh release download latest -p "lcsc.sqlite3.tar.xz"
           tar -I 'xz -T0' -xf lcsc.sqlite3.tar.xz || tar -Jxf lcsc.sqlite3.tar.xz
+          gh release download latest -p "lcsc_only.sqlite3.tar.xz"
+          tar -I 'xz -T0' -xf lcsc_only.sqlite3.tar.xz || tar -Jxf lcsc_only.sqlite3.tar.xz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate FTS-Only Database Variant
+      - name: Generate FTS-Only Database Variants
         run: |
           uv run lcsc-db create-variants --db-path lcsc.sqlite3 --variants fts_only --compress
+          uv run lcsc-db create-variants --db-path lcsc_only.sqlite3 --variants fts_only --compress
 
       - name: Upload to GitHub Release & Update Notes Table
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'schedule'
         run: |
-          uv run lcsc-db update-release --files lcsc_fts_only.sqlite3
+          uv run lcsc-db update-release --files lcsc_fts_only.sqlite3 lcsc_only_fts_only.sqlite3
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

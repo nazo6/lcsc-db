@@ -32,6 +32,19 @@ def test_inspect_file_sizes(tmp_path: Path):
     assert meta["variant"] == "LCSC Only (Base DB)"
     assert arch_p == archive
 
+    # Test lcsc_only_fts_only
+    fts_db = tmp_path / "lcsc_only_fts_only.sqlite3"
+    fts_archive = tmp_path / "lcsc_only_fts_only.sqlite3.tar.xz"
+    fts_db.write_bytes(b"z" * 500)
+    fts_archive.write_bytes(b"w" * 100)
+
+    fts_key, fts_meta, fts_arch_p = inspect_file_sizes(fts_db)
+    assert fts_key == "lcsc_only_fts_only.sqlite3"
+    assert fts_meta["db_size_bytes"] == 500
+    assert fts_meta["archive_size_bytes"] == 100
+    assert fts_meta["variant"] == "LCSC Only (FTS Search DB)"
+    assert fts_arch_p == fts_archive
+
 
 def test_build_and_extract_metadata():
     assets_meta = {
@@ -49,6 +62,13 @@ def test_build_and_extract_metadata():
             "db_size_bytes": 1024 * 1024 * 50,
             "archive_size_bytes": 1024 * 1024 * 10,
         },
+        "lcsc_only_fts_only.sqlite3": {
+            "variant": "LCSC Only (FTS Search DB)",
+            "archive_name": "lcsc_only_fts_only.sqlite3.tar.xz",
+            "description": "Standalone FTS5 search DB for LCSC catalog only",
+            "db_size_bytes": 1024 * 1024 * 40,
+            "archive_size_bytes": 1024 * 1024 * 8,
+        },
     }
 
     notes = build_release_notes(assets_meta, "2026-08-14 00:00:00 UTC")
@@ -56,9 +76,13 @@ def test_build_and_extract_metadata():
     assert "20.00 MB" in notes
     assert "50.00 MB" in notes
     assert "10.00 MB" in notes
+    assert "40.00 MB" in notes
+    assert "8.00 MB" in notes
     assert "| **LCSC Only (Base DB)** | `lcsc_only.sqlite3.tar.xz` | 20.00 MB | 100.00 MB |" in notes
     assert "| **FTS Search DB (Main)** | `lcsc_fts_only.sqlite3.tar.xz` | 10.00 MB | 50.00 MB |" in notes
+    assert "| **LCSC Only (FTS Search DB)** | `lcsc_only_fts_only.sqlite3.tar.xz` | 8.00 MB | 40.00 MB |" in notes
 
     extracted = extract_metadata_from_notes(notes)
     assert extracted["lcsc_only.sqlite3"]["db_size_bytes"] == 1024 * 1024 * 100
     assert extracted["lcsc_fts_only.sqlite3"]["archive_size_bytes"] == 1024 * 1024 * 10
+    assert extracted["lcsc_only_fts_only.sqlite3"]["db_size_bytes"] == 1024 * 1024 * 40
