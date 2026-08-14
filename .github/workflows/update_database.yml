@@ -68,14 +68,6 @@ jobs:
           cp lcsc_only.sqlite3 lcsc.sqlite3
           uv run lcsc-db sync-jlcpcb --db-path lcsc.sqlite3 --enable-fts --compress
 
-      - name: Upload Database Artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: lcsc-databases
-          path: |
-            lcsc.sqlite3.tar.gz
-            lcsc_only.sqlite3.tar.gz
-
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v3
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'schedule'
