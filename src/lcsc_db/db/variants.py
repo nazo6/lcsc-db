@@ -143,16 +143,48 @@ def create_fts_only_variant(base_db_path: Path, output_db_path: Path) -> Path:
         output_db_path.unlink()
 
     output_db_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("Creating standalone FTS database: %s", output_db_path)
+    print(f"Creating FTS search database -> {output_db_path.name}")
+
     conn = sqlite3.connect(output_db_path, isolation_level=None)
     try:
         conn.execute("PRAGMA page_size = 4096;")
-        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = OFF;")
+        conn.execute("PRAGMA journal_mode = OFF;")
+        conn.execute("PRAGMA cache_size = -524288;")  # 512 MB memory cache
+        conn.execute("PRAGMA temp_store = MEMORY;")
+        conn.execute("PRAGMA mmap_size = 30000000000;")
+        conn.execute("PRAGMA locking_mode = EXCLUSIVE;")
 
         # Create standalone FTS5 table
+        print("  [1/5] Initializing FTS5 virtual table schema...")
+        logger.info("Initializing FTS5 virtual table schema...")
         conn.execute(FTS_STANDALONE_DDL)
+
+        # Disable automatic background segment merging during bulk insert
+        conn.execute(
+            "INSERT INTO products_fts(products_fts, rank) VALUES('automerge', 0);"
+        )
 
         # Attach base database and copy searchable + unindexed columns
         conn.execute("ATTACH DATABASE ? AS src;", (str(base_db_path.resolve()),))
+        conn.execute("PRAGMA src.cache_size = -262144;")  # 256 MB read cache for src
+        conn.execute("PRAGMA src.mmap_size = 30000000000;")
+
+        count_row = conn.execute(
+            "SELECT count(*) FROM src.sqlite_master WHERE type='table' AND name='products';"
+        ).fetchone()
+        product_count = 0
+        if count_row and count_row[0]:
+            product_count = conn.execute(
+                "SELECT count(*) FROM src.products;"
+            ).fetchone()[0]
+
+        print(
+            f"  [2/5] Indexing {product_count:,} products into products_fts (trigram tokenization)..."
+        )
+        logger.info("Indexing %d products into products_fts...", product_count)
+
         conn.execute("BEGIN TRANSACTION;")
 
         cols_str = ", ".join(FTS_COLUMNS)
@@ -169,6 +201,11 @@ def create_fts_only_variant(base_db_path: Path, output_db_path: Path) -> Path:
             "SELECT 1 FROM src.sqlite_master WHERE type='table' AND name='categories';"
         ).fetchone()
         if has_categories:
+            cat_count = conn.execute(
+                "SELECT count(*) FROM src.categories;"
+            ).fetchone()[0]
+            print(f"  [3/5] Copying {cat_count:,} categories...")
+            logger.info("Copying %d categories...", cat_count)
             conn.execute(
                 """
                 CREATE TABLE categories (
@@ -186,21 +223,42 @@ def create_fts_only_variant(base_db_path: Path, output_db_path: Path) -> Path:
                 SELECT id, parent_id, name_en, name_cn, code FROM src.categories;
                 """
             )
+        else:
+            print("  [3/5] Categories table not found in source, skipping...")
 
         conn.execute("COMMIT;")
         conn.execute("DETACH DATABASE src;")
 
-        # Optimize FTS index
+        # Re-enable automerge default and optimize FTS index into a single B-tree segment
+        print("  [4/5] Optimizing FTS5 index segments (merging into single B-tree)...")
+        logger.info("Optimizing FTS5 index segments...")
+        conn.execute(
+            "INSERT INTO products_fts(products_fts, rank) VALUES('automerge', 4);"
+        )
         conn.execute("INSERT INTO products_fts(products_fts) VALUES('optimize');")
+
+        # Set journal mode to WAL for the final output database
+        conn.execute("PRAGMA journal_mode = WAL;")
     finally:
         conn.close()
 
     # VACUUM to ensure clean compact pages
+    print("  [5/5] Running VACUUM to compact database pages...")
+    logger.info("Running VACUUM...")
     vacuum_conn = sqlite3.connect(output_db_path)
     try:
+        vacuum_conn.execute("PRAGMA synchronous = OFF;")
+        vacuum_conn.execute("PRAGMA cache_size = -524288;")
+        vacuum_conn.execute("PRAGMA temp_store = MEMORY;")
         vacuum_conn.execute("VACUUM;")
     finally:
         vacuum_conn.close()
+
+    size_mb = output_db_path.stat().st_size / (1024 * 1024)
+    print(
+        f"  ✓ Standalone FTS database created: {output_db_path.name} ({size_mb:.2f} MB)"
+    )
+    logger.info("FTS database created: %s (%.2f MB)", output_db_path.name, size_mb)
 
     return output_db_path
 
@@ -213,15 +271,23 @@ def create_sql_transform_variant(
         output_db_path.unlink()
 
     output_db_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Creating variant -> {output_db_path.name} (copying base DB)...")
+    logger.info("Creating variant %s from %s", output_db_path.name, base_db_path.name)
     shutil.copy2(base_db_path, output_db_path)
 
     conn = sqlite3.connect(output_db_path, isolation_level=None)
     try:
+        conn.execute("PRAGMA synchronous = OFF;")
+        conn.execute("PRAGMA cache_size = -524288;")
+        conn.execute("PRAGMA temp_store = MEMORY;")
         for stmt in sql_statements:
+            print(f"  Executing: {stmt.strip().splitlines()[0]}")
             conn.execute(stmt)
     finally:
         conn.close()
 
+    size_mb = output_db_path.stat().st_size / (1024 * 1024)
+    print(f"  ✓ Variant created: {output_db_path.name} ({size_mb:.2f} MB)")
     return output_db_path
 
 
