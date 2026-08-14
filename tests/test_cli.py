@@ -2,7 +2,7 @@
 
 import pytest
 
-from lcsc_db.cli import build_parser, main
+from lcsc_db.cli import main
 
 
 def test_cli_help(capsys, monkeypatch):

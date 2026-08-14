@@ -1,13 +1,12 @@
-"""CLI entrypoint for lcsc-db command."""
+"""CLI entrypoint for lcsc-db command using pydantic-settings."""
 
-import argparse
 import logging
-import os
-import shutil
-import subprocess
 import sys
-import tarfile
 from pathlib import Path
+from typing import Annotated
+
+from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings, CliApp, CliSubCommand, SettingsConfigDict
 
 from lcsc_db.api import LCSCApi, LCSCApiConfig
 from lcsc_db.db import LCSCDatabase
@@ -23,218 +22,265 @@ def compress_database(db_path: str) -> str:
     return str(archive_path)
 
 
-def run_create_variants(args: argparse.Namespace) -> None:
-    """Execute database variant generation."""
-    log_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+class SyncJLCPCBSettings(BaseModel):
+    """Download JLCPCB cache database and sync ~7.12M components into SQLite."""
+
+    db_path: str = Field(default="lcsc.sqlite3", description="Output SQLite database file path.")
+    cache_dir: str = Field(
+        default=".jlcpcb_cache",
+        description="Temporary directory to download JLCPCB cache chunks.",
     )
-    selected = None if "all" in args.variants else args.variants
-    generate_all_variants(
-        base_db_path=Path(args.db_path),
-        output_dir=Path(args.output_dir) if args.output_dir else None,
-        selected_variants=selected,
-        compress=args.compress,
+    enable_fts: bool = Field(
+        default=True,
+        description="Build SQLite FTS5 trigram search index.",
     )
-
-
-def run_update_release(args: argparse.Namespace) -> None:
-    """Execute GitHub Release update and size stats logging."""
-    run_release_manager(
-        tag=args.tag,
-        title=args.title,
-        target_files=args.files,
-        dry_run=args.dry_run,
+    compress: bool = Field(
+        default=False,
+        description="Compress database to .tar.xz archive upon completion.",
     )
+    verbose: bool = Field(default=False, description="Enable verbose DEBUG logging.")
 
-
-def run_sync_jlcpcb(args: argparse.Namespace) -> None:
-    """Execute JLCPCB cache download & database sync."""
-    log_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-
-    print("==================================================")
-    print("JLCPCB Database Syncer -> LCSC Database")
-    print(f"  Output DB Path  : {args.db_path}")
-    print(f"  Cache Directory : {args.cache_dir}")
-    print(f"  Build FTS5 Index: {args.enable_fts}")
-    print("==================================================")
-
-    cache_dir = Path(args.cache_dir)
-    cache_path = download_jlcpcb_cache(target_dir=cache_dir)
-
-    with LCSCDatabase(db_path=args.db_path) as db:
-        db.init_schema(enable_fts=args.enable_fts)
-        count = db.import_jlcpcb_cache(cache_path)
-        if args.enable_fts:
-            print("Rebuilding FTS5 trigram index...")
-            db.rebuild_fts()
-        db.vacuum_and_optimize()
-        print(f"Successfully synced {count:,} JLCPCB products into {args.db_path}.")
-
-    if args.compress:
-        compress_database(args.db_path)
-
-
-def run_scrape_lcsc(args: argparse.Namespace) -> None:
-    """Execute LCSC API scraper."""
-    log_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-
-    print("==================================================")
-    print("LCSC Product Database Scraper")
-    print(f"  Output DB Path  : {args.db_path}")
-    print(f"  Request Delay   : {args.delay}s")
-    print(f"  In-Stock Only   : {args.instock_only}")
-    print(f"  Include Raw JSON: {args.include_raw_json}")
-    print(f"  Build FTS5 Index: {args.enable_fts}")
-    if args.category_id:
-        print(f"  Category Filter : #{args.category_id}")
-    if args.max_pages:
-        print(f"  Max Pages/Cat   : {args.max_pages}")
-    print("==================================================")
-
-    api = LCSCApi(LCSCApiConfig(delay_seconds=args.delay))
-    with LCSCDatabase(db_path=args.db_path) as db:
-        db.init_schema(enable_fts=args.enable_fts)
-        config = ScraperConfig(
-            db_path=args.db_path,
-            delay=args.delay,
-            instock_only=args.instock_only,
-            include_raw_json=args.include_raw_json,
-            enable_fts=args.enable_fts,
-            category_id=args.category_id,
-            max_pages=args.max_pages,
-            compress=args.compress,
-            verbose=args.verbose,
-        )
-        scraper = LCSCScraper(api=api, db=db, config=config)
-        count = scraper.run(
-            target_category_id=args.category_id,
-            max_pages_per_category=args.max_pages,
+    def cli_cmd(self) -> None:
+        """Execute JLCPCB cache download & database sync."""
+        log_level = logging.DEBUG if self.verbose else logging.INFO
+        logging.basicConfig(
+            level=log_level,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         )
 
-        expected_str = (
-            f"{scraper.total_expected_products:,}"
-            if scraper.total_expected_products > 0
-            else "N/A"
+        print("==================================================")
+        print("JLCPCB Database Syncer -> LCSC Database")
+        print(f"  Output DB Path  : {self.db_path}")
+        print(f"  Cache Directory : {self.cache_dir}")
+        print(f"  Build FTS5 Index: {self.enable_fts}")
+        print("==================================================")
+
+        cache_dir = Path(self.cache_dir)
+        cache_path = download_jlcpcb_cache(target_dir=cache_dir)
+
+        with LCSCDatabase(db_path=self.db_path) as db:
+            db.init_schema(enable_fts=self.enable_fts)
+            count = db.import_jlcpcb_cache(cache_path)
+            if self.enable_fts:
+                print("Rebuilding FTS5 trigram index...")
+                db.rebuild_fts()
+            db.vacuum_and_optimize()
+            print(f"Successfully synced {count:,} JLCPCB products into {self.db_path}.")
+
+        if self.compress:
+            compress_database(self.db_path)
+
+
+class ScrapeLCSCSettings(BaseModel):
+    """Scrape real-time stock and prices from LCSC API."""
+
+    db_path: str = Field(default="lcsc.sqlite3", description="Output SQLite database file path.")
+    delay: float = Field(default=2.0, description="Delay in seconds between API requests.")
+    instock_only: bool = Field(
+        default=True,
+        description="Fetch only currently in-stock products.",
+    )
+    include_raw_json: bool = Field(
+        default=True,
+        description="Save raw API JSON response.",
+    )
+    enable_fts: bool = Field(
+        default=True,
+        description="Build SQLite FTS5 search index.",
+    )
+    category_id: int | None = Field(
+        default=None,
+        description="Scrape only a specific category ID.",
+    )
+    max_pages: int | None = Field(
+        default=None,
+        description="Maximum pages to scrape per category.",
+    )
+    compress: bool = Field(
+        default=False,
+        description="Compress database to .tar.xz archive upon completion.",
+    )
+    verbose: bool = Field(default=False, description="Enable verbose DEBUG logging.")
+
+    def cli_cmd(self) -> None:
+        """Execute LCSC API scraper."""
+        log_level = logging.DEBUG if self.verbose else logging.INFO
+        logging.basicConfig(
+            level=log_level,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         )
-        print(
-            f"Successfully processed {count:,} unique products in {args.db_path} "
-            f"(Expected: {expected_str} products, Fetched: {scraper.total_fetched_items:,} items)."
+
+        print("==================================================")
+        print("LCSC Product Database Scraper")
+        print(f"  Output DB Path  : {self.db_path}")
+        print(f"  Request Delay   : {self.delay}s")
+        print(f"  In-Stock Only   : {self.instock_only}")
+        print(f"  Include Raw JSON: {self.include_raw_json}")
+        print(f"  Build FTS5 Index: {self.enable_fts}")
+        if self.category_id:
+            print(f"  Category Filter : #{self.category_id}")
+        if self.max_pages:
+            print(f"  Max Pages/Cat   : {self.max_pages}")
+        print("==================================================")
+
+        api = LCSCApi(LCSCApiConfig(delay_seconds=self.delay))
+        with LCSCDatabase(db_path=self.db_path) as db:
+            db.init_schema(enable_fts=self.enable_fts)
+            config = ScraperConfig(
+                db_path=self.db_path,
+                delay=self.delay,
+                instock_only=self.instock_only,
+                include_raw_json=self.include_raw_json,
+                enable_fts=self.enable_fts,
+                category_id=self.category_id,
+                max_pages=self.max_pages,
+                compress=self.compress,
+                verbose=self.verbose,
+            )
+            scraper = LCSCScraper(api=api, db=db, config=config)
+            count = scraper.run(
+                target_category_id=self.category_id,
+                max_pages_per_category=self.max_pages,
+            )
+
+            expected_str = (
+                f"{scraper.total_expected_products:,}"
+                if scraper.total_expected_products > 0
+                else "N/A"
+            )
+            print(
+                f"Successfully processed {count:,} unique products in {self.db_path} "
+                f"(Expected: {expected_str} products, Fetched: {scraper.total_fetched_items:,} items)."
+            )
+
+        if self.compress:
+            compress_database(self.db_path)
+
+
+class CreateVariantsSettings(BaseModel):
+    """Generate optimized database variants (e.g. fts_only, no_raw_json, minimal)."""
+
+    db_path: str = Field(default="lcsc.sqlite3", description="Input SQLite database file path.")
+    output_dir: str | None = Field(
+        default=None,
+        description="Output directory for generated variants.",
+    )
+    variants: list[str] = Field(
+        default_factory=lambda: ["fts_only"],
+        description=f"List of variants to generate (choices: {list(VARIANTS.keys()) + ['all']}).",
+    )
+    compress: bool = Field(
+        default=True,
+        description="Compress generated variants to .tar.xz archive.",
+    )
+    verbose: bool = Field(default=False, description="Enable verbose DEBUG logging.")
+
+    def cli_cmd(self) -> None:
+        """Execute database variant generation."""
+        log_level = logging.DEBUG if self.verbose else logging.INFO
+        logging.basicConfig(
+            level=log_level,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        )
+        selected = None if "all" in self.variants else self.variants
+        generate_all_variants(
+            base_db_path=Path(self.db_path),
+            output_dir=Path(self.output_dir) if self.output_dir else None,
+            selected_variants=selected,
+            compress=self.compress,
         )
 
-    if args.compress:
-        compress_database(args.db_path)
 
+class UpdateReleaseSettings(BaseModel):
+    """Upload files to GitHub Release and update release notes size table."""
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="lcsc-db",
-        description="Scraper and SQLite database builder for LCSC and JLCPCB electronics components.",
-    )
-    subparsers = parser.add_subparsers(dest="subcommand", help="Available subcommands")
-
-    # Subcommand: sync-jlcpcb
-    jlc_parser = subparsers.add_parser(
-        "sync-jlcpcb",
-        help="Download JLCPCB cache database and sync ~7.12M components into lcsc.sqlite3.",
-    )
-    jlc_parser.add_argument("--db-path", default="lcsc.sqlite3", help="Output SQLite database file path.")
-    jlc_parser.add_argument("--cache-dir", default=".jlcpcb_cache", help="Temporary directory to download JLCPCB cache chunks.")
-    jlc_parser.add_argument("--enable-fts", action=argparse.BooleanOptionalAction, default=True, help="Build SQLite FTS5 trigram search index.")
-    jlc_parser.add_argument("--compress", action=argparse.BooleanOptionalAction, default=False, help="Compress database to .tar.xz archive upon completion.")
-    jlc_parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=False, help="Enable verbose DEBUG logging.")
-    jlc_parser.set_defaults(func=run_sync_jlcpcb)
-
-    # Subcommand: scrape-lcsc
-    scrape_parser = subparsers.add_parser(
-        "scrape-lcsc",
-        help="Scrape real-time stock and prices from LCSC API.",
-    )
-    scrape_parser.add_argument("--db-path", default="lcsc.sqlite3", help="Output SQLite database file path.")
-    scrape_parser.add_argument("--delay", type=float, default=2.0, help="Delay in seconds between API requests.")
-    scrape_parser.add_argument("--instock-only", action=argparse.BooleanOptionalAction, default=True, help="Fetch only currently in-stock products.")
-    scrape_parser.add_argument("--include-raw-json", action=argparse.BooleanOptionalAction, default=True, help="Save raw API JSON response.")
-    scrape_parser.add_argument("--enable-fts", action=argparse.BooleanOptionalAction, default=True, help="Build SQLite FTS5 search index.")
-    scrape_parser.add_argument("--category-id", type=int, default=None, help="Scrape only a specific category ID.")
-    scrape_parser.add_argument("--max-pages", type=int, default=None, help="Maximum pages to scrape per category.")
-    scrape_parser.add_argument("--compress", action=argparse.BooleanOptionalAction, default=False, help="Compress database to .tar.xz archive upon completion.")
-    scrape_parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=False, help="Enable verbose DEBUG logging.")
-    scrape_parser.set_defaults(func=run_scrape_lcsc)
-
-    # Subcommand: create-variants
-    variants_parser = subparsers.add_parser(
-        "create-variants",
-        help="Generate optimized database variants (e.g. fts_only, no_raw_json, minimal).",
-    )
-    variants_parser.add_argument("--db-path", default="lcsc.sqlite3", help="Input SQLite database file path.")
-    variants_parser.add_argument("--output-dir", default=None, help="Output directory for generated variants.")
-    variants_parser.add_argument(
-        "--variants",
-        nargs="+",
-        choices=list(VARIANTS.keys()) + ["all"],
-        default=["fts_only"],
-        help="List of variants to generate (default: fts_only).",
-    )
-    variants_parser.add_argument("--compress", action=argparse.BooleanOptionalAction, default=True, help="Compress generated variants to .tar.xz archive.")
-    variants_parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=False, help="Enable verbose DEBUG logging.")
-    variants_parser.set_defaults(func=run_create_variants)
-
-    # Subcommand: update-release
-    release_parser = subparsers.add_parser(
-        "update-release",
-        help="Upload files to GitHub Release and update release notes size table.",
-    )
-    release_parser.add_argument("--tag", default="latest", help="Release tag name (default: latest).")
-    release_parser.add_argument(
-        "--title",
+    tag: str = Field(default="latest", description="Release tag name (default: latest).")
+    title: str = Field(
         default="LCSC Product Database (Latest)",
-        help="Release title (default: 'LCSC Product Database (Latest)').",
+        description="Release title.",
     )
-    release_parser.add_argument(
-        "--files",
-        nargs="+",
-        required=True,
-        type=Path,
-        help="List of files (.sqlite3 or .tar.xz) to inspect and upload.",
+    files: list[str] = Field(
+        default_factory=list,
+        description="List of files (.sqlite3 or .tar.xz) to inspect and upload.",
     )
-    release_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print updated release notes without calling GitHub CLI.",
+    dry_run: bool = Field(
+        default=False,
+        description="Print updated release notes without calling GitHub CLI.",
     )
-    release_parser.set_defaults(func=run_update_release)
+    verbose: bool = Field(default=False, description="Enable verbose DEBUG logging.")
 
-    # Default / Top-Level Arguments (Backwards Compatibility)
-    parser.add_argument("--db-path", default="lcsc.sqlite3", help="Output SQLite database file path.")
-    parser.add_argument("--delay", type=float, default=2.0, help="Delay in seconds between API requests.")
-    parser.add_argument("--instock-only", action=argparse.BooleanOptionalAction, default=True, help="Fetch only currently in-stock products.")
-    parser.add_argument("--include-raw-json", action=argparse.BooleanOptionalAction, default=True, help="Save raw API JSON response.")
-    parser.add_argument("--enable-fts", action=argparse.BooleanOptionalAction, default=True, help="Build SQLite FTS5 search index.")
-    parser.add_argument("--category-id", type=int, default=None, help="Scrape only a specific category ID.")
-    parser.add_argument("--max-pages", type=int, default=None, help="Maximum pages to scrape per category.")
-    parser.add_argument("--compress", action=argparse.BooleanOptionalAction, default=False, help="Compress database to .tar.xz archive upon completion.")
-    parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=False, help="Enable verbose DEBUG logging.")
-    parser.set_defaults(func=run_scrape_lcsc)
+    def cli_cmd(self) -> None:
+        """Execute GitHub Release update and size stats logging."""
+        log_level = logging.DEBUG if self.verbose else logging.INFO
+        logging.basicConfig(
+            level=log_level,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        )
+        run_release_manager(
+            tag=self.tag,
+            title=self.title,
+            target_files=[Path(f) for f in self.files],
+            dry_run=self.dry_run,
+        )
 
-    return parser
+
+class CLI(BaseSettings):
+    """Scraper and SQLite database builder for LCSC and JLCPCB electronics components."""
+
+    model_config = SettingsConfigDict(
+        cli_prog_name="lcsc-db",
+        cli_kebab_case=True,
+        cli_implicit_flags="dual",
+        cli_use_class_docs_for_groups=True,
+    )
+
+    sync_jlcpcb: Annotated[
+        CliSubCommand[SyncJLCPCBSettings],
+        Field(
+            alias="sync-jlcpcb",
+            description="Download JLCPCB cache database and sync ~7.12M components into SQLite.",
+        ),
+    ]
+    scrape_lcsc: Annotated[
+        CliSubCommand[ScrapeLCSCSettings],
+        Field(
+            alias="scrape-lcsc",
+            description="Scrape real-time stock and prices from LCSC API.",
+        ),
+    ]
+    create_variants: Annotated[
+        CliSubCommand[CreateVariantsSettings],
+        Field(
+            alias="create-variants",
+            description="Generate optimized database variants (e.g. fts_only, no_raw_json, minimal).",
+        ),
+    ]
+    update_release: Annotated[
+        CliSubCommand[UpdateReleaseSettings],
+        Field(
+            alias="update-release",
+            description="Upload files to GitHub Release and update release notes size table.",
+        ),
+    ]
+
+    def cli_cmd(self) -> None:
+        """Dispatch execution to selected subcommand."""
+        if self.sync_jlcpcb is not None:
+            self.sync_jlcpcb.cli_cmd()
+        elif self.scrape_lcsc is not None:
+            self.scrape_lcsc.cli_cmd()
+        elif self.create_variants is not None:
+            self.create_variants.cli_cmd()
+        elif self.update_release is not None:
+            self.update_release.cli_cmd()
+        else:
+            print("Please specify a subcommand. Run with --help for usage.")
 
 
-def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
-    if hasattr(args, "func"):
-        args.func(args)
-    else:
-        run_scrape_lcsc(args)
+def main(args: list[str] | None = None) -> None:
+    """CLI entrypoint."""
+    cli_args = args if args is not None else sys.argv[1:]
+    CliApp.run(CLI, cli_args=cli_args)
 
 
 if __name__ == "__main__":
