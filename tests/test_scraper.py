@@ -29,7 +29,6 @@ def test_scraper_options_and_run(tmp_path):
         config=ScraperConfig(
             instock_only=True,
             include_raw_json=True,
-            enable_fts=True,
         ),
     )
 

@@ -41,7 +41,7 @@ def test_cli_sync_jlcpcb_help(capsys, monkeypatch):
         main()
     out = capsys.readouterr().out
     assert "--cache-dir" in out
-    assert "--enable-fts" in out
+    assert "--compress" in out
 
 
 def test_cli_scrape_dry_run(tmp_path, capsys, monkeypatch):
@@ -76,7 +76,7 @@ def test_cli_create_variants_execution(tmp_path, capsys, monkeypatch):
 
     db_file = tmp_path / "base.sqlite3"
     with LCSCDatabase(db_path=str(db_file)) as db:
-        db.init_schema(enable_fts=True)
+        db.init_schema()
         db.upsert_products(
             [
                 Product(

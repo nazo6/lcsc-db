@@ -15,35 +15,30 @@ logger = logging.getLogger(__name__)
 METADATA_COMMENT_PATTERN = re.compile(r"<!-- METADATA:\s*(\{.*?\})\s*-->", re.DOTALL)
 
 KNOWN_ASSETS_META: dict[str, dict[str, Any]] = {
+    "lcsc_fts_only.sqlite3": {
+        "variant": "FTS Search DB (Main)",
+        "archive_name": "lcsc_fts_only.sqlite3.tar.xz",
+        "description": "Standalone FTS5 search DB with all attributes (UNINDEXED) & categories",
+    },
     "lcsc.sqlite3": {
-        "variant": "JLCPCB Integrated (DB 1)",
+        "variant": "JLCPCB Integrated (Base DB)",
         "archive_name": "lcsc.sqlite3.tar.xz",
-        "description": "Full JLCPCB + LCSC catalog with FTS5",
+        "description": "Full JLCPCB + LCSC relational database (with raw_json)",
     },
     "lcsc_only.sqlite3": {
-        "variant": "LCSC Only (DB 2)",
+        "variant": "LCSC Only (Base DB)",
         "archive_name": "lcsc_only.sqlite3.tar.xz",
-        "description": "LCSC catalog only with FTS5",
-    },
-    "lcsc_fts_only.sqlite3": {
-        "variant": "FTS Only",
-        "archive_name": "lcsc_fts_only.sqlite3.tar.xz",
-        "description": "Standalone FTS5 trigram search index",
+        "description": "LCSC catalog only relational database (with raw_json)",
     },
     "lcsc_no_raw_json.sqlite3": {
         "variant": "No raw_json",
         "archive_name": "lcsc_no_raw_json.sqlite3.tar.xz",
-        "description": "Full database with FTS5 (raw_json cleared)",
-    },
-    "lcsc_no_fts.sqlite3": {
-        "variant": "No FTS",
-        "archive_name": "lcsc_no_fts.sqlite3.tar.xz",
-        "description": "Full database without FTS5 index",
+        "description": "Full relational database (raw_json cleared)",
     },
     "lcsc_minimal.sqlite3": {
         "variant": "Minimal",
         "archive_name": "lcsc_minimal.sqlite3.tar.xz",
-        "description": "Minimal database without FTS5 and raw_json",
+        "description": "Minimal relational database (raw_json cleared)",
     },
 }
 
@@ -85,11 +80,10 @@ def build_release_notes(assets_meta: dict[str, dict[str, Any]], updated_at_str: 
 
     # Sort items based on standard order if possible
     order = [
+        "lcsc_fts_only.sqlite3",
         "lcsc.sqlite3",
         "lcsc_only.sqlite3",
-        "lcsc_fts_only.sqlite3",
         "lcsc_no_raw_json.sqlite3",
-        "lcsc_no_fts.sqlite3",
         "lcsc_minimal.sqlite3",
     ]
     sorted_keys = sorted(

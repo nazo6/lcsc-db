@@ -22,7 +22,6 @@ class ScraperConfig(BaseModel):
 
     instock_only: bool = True
     include_raw_json: bool = True
-    enable_fts: bool = True
     partition_threshold: int = 5000
     max_partition_depth: int = 2
 
@@ -42,7 +41,6 @@ class LCSCScraper:
         self.config = config
         self.instock_only = config.instock_only
         self.include_raw_json = config.include_raw_json
-        self.enable_fts = config.enable_fts
         self.partition_threshold = config.partition_threshold
         self.max_partition_depth = config.max_partition_depth
 
@@ -290,7 +288,7 @@ class LCSCScraper:
             Total count of unique products processed.
         """
         logger.info("Initializing database schema...")
-        self.db.init_schema(enable_fts=self.enable_fts)
+        self.db.init_schema()
 
         run_start = self.db.current_db_time()
 
@@ -360,10 +358,6 @@ class LCSCScraper:
         if self.instock_only and target_category_id is None:
             logger.info("Updating stock for products not scraped this run to 0...")
             self.db.mark_unseen_stock_zero_before(run_start)
-
-        if self.enable_fts:
-            logger.info("Rebuilding FTS5 full-text search index...")
-            self.db.rebuild_fts()
 
         logger.info("Optimizing database...")
         self.db.vacuum_and_optimize()

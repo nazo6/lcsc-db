@@ -11,7 +11,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, col, create_engine, select
 
 from lcsc_db.models import Category, Product
-from lcsc_db.schema import FTS_DDL, CategoryRecord, ProductParamRecord, ProductRecord
+from lcsc_db.schema import CategoryRecord, ProductParamRecord, ProductRecord
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +62,8 @@ class LCSCDatabase:
                 conn.exec_driver_sql("ALTER TABLE products ADD COLUMN raw_json TEXT")
             conn.commit()
 
-    def init_schema(self, enable_fts: bool = True) -> None:
-        """Create tables, indexes, and optional FTS5 virtual table via migrations."""
+    def init_schema(self) -> None:
+        """Create tables and indexes via migrations."""
         cfg = _alembic_config(self.db_path)
         if not self._has_table("alembic_version"):
             if self._has_table("products"):
@@ -72,10 +72,6 @@ class LCSCDatabase:
                 self._ensure_legacy_columns()
                 command.stamp(cfg, BASELINE_REVISION)
         command.upgrade(cfg, "head")
-        if enable_fts:
-            with self.engine.connect() as conn:
-                conn.exec_driver_sql(FTS_DDL)
-                conn.commit()
 
     def upsert_categories(self, categories_list: list[Category]) -> None:
         """Insert or update categories."""
@@ -156,15 +152,6 @@ class LCSCDatabase:
         from lcsc_db.jlcpcb import import_cache_db
 
         return import_cache_db(cache_db_path, Path(self.db_path))
-
-    def rebuild_fts(self) -> None:
-        """Rebuild FTS5 index for full-text search."""
-        if not self._has_table("products_fts"):
-            return
-        with self._tx() as session:
-            session.connection().execute(
-                text("INSERT INTO products_fts(products_fts) VALUES('rebuild');")
-            )
 
     def vacuum_and_optimize(self) -> None:
         """Optimize and vacuum database."""

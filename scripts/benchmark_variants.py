@@ -31,6 +31,9 @@ def compress_file(file_path: Path) -> Path:
     return archive_path
 
 
+from lcsc_db.variants import create_fts_only_variant
+
+
 def measure_variant(
     base_db_path: Path,
     variant_name: str,
@@ -61,45 +64,47 @@ def measure_variant(
         }
 
 
+def measure_fts_variant(base_db_path: Path) -> dict:
+    """Create standalone FTS variant and measure sizes."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_db = Path(tmp_dir) / "work_fts_only.sqlite3"
+        create_fts_only_variant(base_db_path, tmp_db)
+        archive_path = compress_file(tmp_db)
+
+        db_bytes = tmp_db.stat().st_size
+        xz_bytes = archive_path.stat().st_size
+
+        return {
+            "variant": "FTS Search DB (Main / Standalone FTS5)",
+            "db_size_mb": db_bytes / (1024 * 1024),
+            "xz_size_mb": xz_bytes / (1024 * 1024),
+        }
+
+
 def run_benchmark(db_path: Path, label: str, output_markdown: Path | None = None) -> str:
-    """Run benchmark across 4 variants and generate a markdown table."""
+    """Run benchmark across variants and generate a markdown table."""
     if not db_path.exists():
         raise FileNotFoundError(f"Database file not found: {db_path}")
 
     print(f"Benchmarking variants for: {label} ({db_path})")
 
-    # 1. Full Baseline
-    full = measure_variant(db_path, "Full Baseline (FTS: Yes, raw_json: Yes)")
+    # 1. Base DB (relational, with raw_json, no FTS)
+    base = measure_variant(db_path, "Base DB (Relational, raw_json: Yes, FTS: No)")
 
-    # 2. No FTS
-    no_fts = measure_variant(
-        db_path,
-        "No FTS (FTS: No, raw_json: Yes)",
-        ["DROP TABLE IF EXISTS products_fts;", "VACUUM;"],
-    )
+    # 2. Standalone FTS variant
+    fts = measure_fts_variant(db_path)
 
     # 3. No raw_json
     no_raw = measure_variant(
         db_path,
-        "No raw_json (FTS: Yes, raw_json: No)",
+        "No raw_json (Relational, raw_json: No)",
         ["UPDATE products SET raw_json = NULL;", "VACUUM;"],
     )
 
-    # 4. Minimal
-    minimal = measure_variant(
-        db_path,
-        "Minimal (FTS: No, raw_json: No)",
-        [
-            "DROP TABLE IF EXISTS products_fts;",
-            "UPDATE products SET raw_json = NULL;",
-            "VACUUM;",
-        ],
-    )
+    results = [base, fts, no_raw]
 
-    results = [full, no_fts, no_raw, minimal]
-
-    base_db_mb = full["db_size_mb"]
-    base_xz_mb = full["xz_size_mb"]
+    base_db_mb = base["db_size_mb"]
+    base_xz_mb = base["xz_size_mb"]
 
     lines = [
         f"### Size Benchmark Report: {label}",
@@ -115,8 +120,8 @@ def run_benchmark(db_path: Path, label: str, output_markdown: Path | None = None
         db_diff = ((db_mb - base_db_mb) / base_db_mb) * 100 if base_db_mb > 0 else 0
         xz_diff = ((xz_mb - base_xz_mb) / base_xz_mb) * 100 if base_xz_mb > 0 else 0
 
-        db_diff_str = "Baseline" if r == full else f"{db_diff:+.1f}%"
-        xz_diff_str = "Baseline" if r == full else f"{xz_diff:+.1f}%"
+        db_diff_str = "Baseline" if r == base else f"{db_diff:+.1f}%"
+        xz_diff_str = "Baseline" if r == base else f"{xz_diff:+.1f}%"
 
         lines.append(
             f"| **{r['variant']}** | {db_mb:.2f} MB | {db_diff_str} | {xz_mb:.2f} MB | {xz_diff_str} |"

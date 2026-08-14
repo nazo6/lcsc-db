@@ -24,8 +24,8 @@ def _table_columns(db, table_name):
         return [row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table_name});")]
 
 
-def test_db_schema_options(temp_db):
-    temp_db.init_schema(enable_fts=True)
+def test_db_schema(temp_db):
+    temp_db.init_schema()
 
     cols = _table_columns(temp_db, "products")
     assert "raw_json" in cols
@@ -37,27 +37,11 @@ def test_db_schema_options(temp_db):
         fts = conn.exec_driver_sql(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='products_fts';"
         ).first()
-    assert fts is not None
-
-
-def test_db_schema_without_fts(tmp_path):
-    db_file = tmp_path / "test_no_raw.sqlite3"
-    db = LCSCDatabase(str(db_file))
-    db.init_schema(enable_fts=False)
-
-    cols = _table_columns(db, "products")
-    assert "raw_json" in cols
-
-    with db.engine.connect() as conn:
-        fts = conn.exec_driver_sql(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='products_fts';"
-        ).first()
     assert fts is None
-    db.close()
 
 
-def test_upsert_products_lossless_and_fts(temp_db):
-    temp_db.init_schema(enable_fts=True)
+def test_upsert_products_lossless(temp_db):
+    temp_db.init_schema()
 
     sample_product = {
         "productId": 107087,
@@ -86,7 +70,6 @@ def test_upsert_products_lossless_and_fts(temp_db):
     }
 
     temp_db.upsert_products([Product.model_validate(sample_product)], include_raw_json=True)
-    temp_db.rebuild_fts()
 
     with Session(temp_db.engine) as session:
         row = session.exec(
@@ -101,14 +84,6 @@ def test_upsert_products_lossless_and_fts(temp_db):
     raw_json_data = json.loads(row.raw_json)
     assert raw_json_data["productId"] == 107087
     assert raw_json_data["productCode"] == "C105872"
-
-    # Test FTS5 Search
-    with Session(temp_db.engine) as session:
-        fts_row = session.connection().execute(
-            text("SELECT * FROM products_fts WHERE products_fts MATCH 'RC0402FR';")
-        ).first()
-    assert fts_row is not None
-    assert fts_row[0] == "C105872"
 
 
 def test_raw_json_null_when_disabled(temp_db):

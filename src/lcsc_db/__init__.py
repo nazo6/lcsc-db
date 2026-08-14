@@ -15,18 +15,23 @@ from lcsc_db.models import (
 )
 from lcsc_db.schema import (
     CategoryRecord,
-    FTS_DDL,
     ProductParamRecord,
     ProductRecord,
 )
 from lcsc_db.scraper import LCSCScraper, ScraperConfig
+from lcsc_db.variants import (
+    VARIANTS,
+    compress_file,
+    create_fts_only_variant,
+    generate_all_variants,
+    generate_variant,
+)
 
 __all__ = [
     "CatalogEntry",
     "CatalogListResult",
     "Category",
     "CategoryRecord",
-    "FTS_DDL",
     "LCSCApi",
     "LCSCApiConfig",
     "LCSCApiError",
@@ -41,5 +46,10 @@ __all__ = [
     "ProductQueryResult",
     "ProductRecord",
     "ScraperConfig",
+    "VARIANTS",
+    "compress_file",
+    "create_fts_only_variant",
+    "generate_all_variants",
+    "generate_variant",
 ]
 __version__ = "0.1.0"

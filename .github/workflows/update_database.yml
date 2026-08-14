@@ -73,7 +73,7 @@ jobs:
           fi
           DELAY="${{ github.event.inputs.delay_seconds || '2.0' }}"
 
-          uv run lcsc-db scrape-lcsc --db-path lcsc_only.sqlite3 --delay "$DELAY" $INSTOCK_FLAG --include-raw-json --enable-fts --compress
+          uv run lcsc-db scrape-lcsc --db-path lcsc_only.sqlite3 --delay "$DELAY" $INSTOCK_FLAG --include-raw-json --compress
 
       - name: Upload to GitHub Release & Update Notes Table
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'schedule'
@@ -119,7 +119,7 @@ jobs:
 
       - name: Sync JLCPCB Database into lcsc.sqlite3
         run: |
-          uv run lcsc-db sync-jlcpcb --db-path lcsc.sqlite3 --enable-fts --compress
+          uv run lcsc-db sync-jlcpcb --db-path lcsc.sqlite3 --compress
 
       - name: Upload to GitHub Release & Update Notes Table
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'schedule'

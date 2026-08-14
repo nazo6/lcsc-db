@@ -9,9 +9,9 @@ Pre-built SQLite databases compressed with `.tar.xz` are published weekly in
 
 | Database Variant | Archive File | Description |
 | :--- | :--- | :--- |
-| **JLCPCB Integrated** *(Default)* | `lcsc.sqlite3.tar.xz` | Full LCSC catalog merged with JLCPCB stock & library types, with FTS5 index. |
-| **LCSC Only** | `lcsc_only.sqlite3.tar.xz` | Full LCSC catalog with live stock, pricing tiers, and FTS5 index. |
-| **FTS Only** | `lcsc_fts_only.sqlite3.tar.xz` | Lightweight standalone FTS5 search index for fast part lookup. |
+| **FTS Search DB** *(Recommended / Main)* | `lcsc_fts_only.sqlite3.tar.xz` | High-performance standalone FTS5 search DB with all attributes (`UNINDEXED`) & categories. |
+| **JLCPCB Integrated** *(Base Relational DB)* | `lcsc.sqlite3.tar.xz` | Full LCSC catalog merged with JLCPCB stock & library types (relational tables, with `raw_json`). |
+| **LCSC Only** *(Base Relational DB)* | `lcsc_only.sqlite3.tar.xz` | Full LCSC catalog with live stock, pricing tiers (relational tables, with `raw_json`). |
 
 ### How to Download & Extract
 
@@ -19,53 +19,50 @@ You can download the latest release archives directly from GitHub Releases or
 using the GitHub CLI:
 
 ```bash
-# Download the JLCPCB Integrated database archive
-gh release download latest -p "lcsc.sqlite3.tar.xz"
+# Download the main FTS Search database archive
+gh release download latest -p "lcsc_fts_only.sqlite3.tar.xz"
 
 # Extract the SQLite database
-tar -xf lcsc.sqlite3.tar.xz
-# The database file 'lcsc.sqlite3' is now ready for use
+tar -xf lcsc_fts_only.sqlite3.tar.xz
+# The database file 'lcsc_fts_only.sqlite3' is now ready for use
 ```
 
 ---
 
 ## Database Schema & Queries
 
-The SQLite database consists of three main tables:
+### 1. FTS Search Database (`lcsc_fts_only.sqlite3`)
+Designed for ultra-fast part lookup and interactive search:
+- **`products_fts`**: Self-contained SQLite `FTS5` virtual table with trigram tokenizer.
+  - **Indexed Columns**: `lcsc_number`, `mfr_part_number`, `brand_name`, `package`, `description`, `first_category_name`, `second_category_name`, `third_category_name`
+  - **UNINDEXED Columns**: `stock`, `stock_sz`/`stock_js`/`stock_hk`, `moq`, `spq`, `price_ladder`, `pdf_url`, `image_url`, `product_images`, `msl`, `eccn`, `url`, `is_rohs`, `is_hot`, `is_reel`, `reel_price`, `jlcpcb_stock`, `jlcpcb_price_ladder`, `jlcpcb_library_type`, `jlcpcb_extra`, `last_updated`, etc.
+- **`categories`**: Category hierarchy (`id`, `parent_id`, `name_en`, `name_cn`, `code`).
 
-- **`products`**: Main component table storing all part details.
-  - **Identifiers**: `lcsc_number` (Primary Key, e.g. `C105872`),
-    `mfr_part_number`, `brand_name`, `package`
-  - **Specs & Metadata**: `description`, `first_category_name`,
-    `second_category_name`, `pdf_url` (datasheet), `image_url`
-  - **Stock & Pricing**: `stock` (total LCSC stock),
-    `stock_sz`/`stock_js`/`stock_hk` (warehouse breakdown), `price_ladder`
-    (JSON), `moq`, `spq`
-  - **JLCPCB Integration**: `jlcpcb_stock`, `jlcpcb_price_ladder`,
-    `jlcpcb_library_type` (`Basic`, `Preferred`, `Extended`), `jlcpcb_extra`
-  - **Raw Payload**: `raw_json` (Full LCSC API response)
-- **`categories`**: Category hierarchy (`id`, `parent_id`, `name_en`).
-- **`products_fts`**: SQLite `FTS5` virtual table with trigram tokenizer for
-  ultra-fast substring and keyword search.
+### 2. Base Relational Database (`lcsc.sqlite3` / `lcsc_only.sqlite3`)
+- **`products`**: Standard relational table with all structured columns plus full `raw_json` API responses.
+- **`categories`**: Category hierarchy.
+- **`product_params`**: Normalized product key-value technical parameters.
 
-### Example Queries
+---
 
-#### 1. Fast Full-Text Search (FTS5 Trigram)
+### Example Queries (`lcsc_fts_only.sqlite3`)
+
+#### 1. Fast Full-Text Search (Direct on `products_fts`, no JOIN needed)
 
 ```sql
 SELECT
-    p.lcsc_number,
-    p.mfr_part_number,
-    p.brand_name,
-    p.package,
-    p.description,
-    p.stock AS lcsc_stock,
-    p.jlcpcb_stock,
-    p.jlcpcb_library_type
-FROM products p
-JOIN products_fts fts ON fts.rowid = p.rowid
+    lcsc_number,
+    mfr_part_number,
+    brand_name,
+    package,
+    description,
+    stock AS lcsc_stock,
+    jlcpcb_stock,
+    jlcpcb_library_type,
+    pdf_url
+FROM products_fts
 WHERE products_fts MATCH 'stm32f401'
-ORDER BY p.stock DESC
+ORDER BY stock DESC
 LIMIT 20;
 ```
 
@@ -80,11 +77,27 @@ SELECT
     description,
     jlcpcb_stock,
     jlcpcb_library_type
-FROM products
+FROM products_fts
 WHERE jlcpcb_library_type IN ('Basic', 'Preferred')
   AND jlcpcb_stock > 1000
 ORDER BY jlcpcb_stock DESC
 LIMIT 20;
+```
+
+#### 3. Exact Part Lookup by LCSC Part Number
+
+```sql
+SELECT
+    lcsc_number,
+    mfr_part_number,
+    brand_name,
+    package,
+    description,
+    stock,
+    price_ladder,
+    pdf_url
+FROM products_fts
+WHERE lcsc_number = 'C105872';
 ```
 
 ## CLI Usage (Building from Source)

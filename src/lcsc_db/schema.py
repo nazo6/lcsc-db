@@ -133,6 +133,11 @@ class ProductRecord(SQLModel, table=True):
             "is_sample": 1 if product.is_sample else 0,
             "is_discount": 1 if product.is_discount else 0,
             "is_pre_sale": 1 if product.is_pre_sale else 0,
+            "jlcpcb_stock": product.jlcpcb_stock or 0,
+            "jlcpcb_price_ladder": product.jlcpcb_price_ladder,
+            "jlcpcb_library_type": product.jlcpcb_library_type,
+            "jlcpcb_extra": product.jlcpcb_extra,
+            "jlcpcb_last_updated": product.jlcpcb_last_updated,
         }
         if include_raw_json:
             data["raw_json"] = json.dumps(
@@ -150,17 +155,3 @@ class ProductParamRecord(SQLModel, table=True):
     param_name: str | None = None
     param_value: str | None = None
 
-
-FTS_DDL = """
-CREATE VIRTUAL TABLE IF NOT EXISTS products_fts USING fts5(
-    lcsc_number,
-    mfr_part_number,
-    brand_name,
-    package,
-    description,
-    first_category_name,
-    second_category_name,
-    tokenize="trigram",
-    content='products'
-);
-"""

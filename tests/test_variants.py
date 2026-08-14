@@ -19,10 +19,18 @@ from lcsc_db.variants import (
 
 @pytest.fixture
 def sample_db(tmp_path: Path) -> Path:
-    """Create a temporary SQLite database populated with sample products."""
+    """Create a temporary SQLite database populated with sample products and categories."""
+    from lcsc_db.models import Category
+
     db_path = tmp_path / "sample.sqlite3"
     with LCSCDatabase(db_path=str(db_path)) as db:
-        db.init_schema(enable_fts=True)
+        db.init_schema()
+        db.upsert_categories(
+            [
+                Category(category_id=1, name_en="Microcontrollers"),
+                Category(category_id=2, name_en="Wireless Modules"),
+            ]
+        )
         products = [
             Product(
                 lcsc_number="C12345",
@@ -33,6 +41,9 @@ def sample_db(tmp_path: Path) -> Path:
                 first_category_name="Microcontrollers",
                 second_category_name="ARM",
                 stock=5000,
+                jlcpcb_stock=3000,
+                jlcpcb_library_type="Basic",
+                pdf_url="https://example.com/stm32.pdf",
             ),
             Product(
                 lcsc_number="C67890",
@@ -43,10 +54,12 @@ def sample_db(tmp_path: Path) -> Path:
                 first_category_name="Wireless Modules",
                 second_category_name="Bluetooth",
                 stock=1200,
+                jlcpcb_stock=800,
+                jlcpcb_library_type="Preferred",
+                pdf_url="https://example.com/esp32.pdf",
             ),
         ]
         db.upsert_products(products, include_raw_json=True)
-        db.rebuild_fts()
     return db_path
 
 
@@ -58,7 +71,6 @@ def test_create_fts_only_variant(sample_db: Path, tmp_path: Path) -> None:
 
     conn = sqlite3.connect(output_db)
     try:
-        # Check tables in generated DB: only products_fts and its internal shadow tables
         tables = [
             row[0]
             for row in conn.execute(
@@ -66,24 +78,35 @@ def test_create_fts_only_variant(sample_db: Path, tmp_path: Path) -> None:
             ).fetchall()
         ]
         assert "products" not in tables
-        assert "categories" not in tables
+        assert "categories" in tables
         assert "products_fts" in tables
 
         # Search query using trigram MATCH
         cursor = conn.execute(
-            "SELECT lcsc_number, mfr_part_number FROM products_fts WHERE products_fts MATCH 'STM32';"
+            "SELECT lcsc_number, mfr_part_number, stock, jlcpcb_stock, jlcpcb_library_type, pdf_url "
+            "FROM products_fts WHERE products_fts MATCH 'STM32';"
         )
         rows = cursor.fetchall()
         assert len(rows) == 1
         assert rows[0][0] == "C12345"
         assert rows[0][1] == "STM32F103C8T6"
+        assert rows[0][2] == "5000" or rows[0][2] == 5000
+        assert rows[0][3] == "3000" or rows[0][3] == 3000
+        assert rows[0][4] == "Basic"
+        assert rows[0][5] == "https://example.com/stm32.pdf"
 
+        # Query using UNINDEXED column filter and lookup
         cursor2 = conn.execute(
-            "SELECT lcsc_number, description FROM products_fts WHERE products_fts MATCH 'Bluetooth';"
+            "SELECT lcsc_number, description FROM products_fts WHERE lcsc_number = 'C67890';"
         )
         rows2 = cursor2.fetchall()
         assert len(rows2) == 1
         assert rows2[0][0] == "C67890"
+
+        # Verify categories table contents
+        cats = conn.execute("SELECT id, name_en FROM categories ORDER BY id;").fetchall()
+        assert len(cats) == 2
+        assert cats[0] == (1, "Microcontrollers")
     finally:
         conn.close()
 

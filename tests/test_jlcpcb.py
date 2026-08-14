@@ -67,12 +67,13 @@ def mock_cache_db(tmp_path: Path) -> Path:
 
 
 def test_jlcpcb_import_and_trigram_fts(tmp_path: Path, mock_cache_db: Path):
+    from lcsc_db.variants import create_fts_only_variant
+
     target_db_file = tmp_path / "lcsc_test.sqlite3"
     with LCSCDatabase(str(target_db_file)) as db:
-        db.init_schema(enable_fts=True)
+        db.init_schema()
         count = db.import_jlcpcb_cache(mock_cache_db)
         assert count == 1
-        db.rebuild_fts()
 
         with Session(db.engine) as session:
             record = session.exec(select(ProductRecord).where(ProductRecord.lcsc_number == "C89188")).one()
@@ -84,19 +85,27 @@ def test_jlcpcb_import_and_trigram_fts(tmp_path: Path, mock_cache_db: Path):
             assert record.jlcpcb_library_type == "Preferred"
             assert "minPurchaseNum" in (record.jlcpcb_extra or "")
 
-        # Test Trigram FTS search with substring matching
-        with db.engine.connect() as conn:
-            row = conn.exec_driver_sql(
-                "SELECT * FROM products_fts WHERE products_fts MATCH '0603';"
-            ).first()
-            assert row is not None
-            assert row[0] == "C89188"
+    # Test FTS standalone variant generation from synced DB
+    fts_db_file = tmp_path / "lcsc_test_fts.sqlite3"
+    create_fts_only_variant(target_db_file, fts_db_file)
+
+    conn = sqlite3.connect(fts_db_file)
+    try:
+        row = conn.execute(
+            "SELECT lcsc_number, mfr_part_number, jlcpcb_stock, jlcpcb_library_type FROM products_fts WHERE products_fts MATCH '0603';"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "C89188"
+        assert row[1] == "0603X105K160NT"
+        assert row[3] == "Preferred"
+    finally:
+        conn.close()
 
 
 def test_property_priority_lcsc_overlay(tmp_path: Path, mock_cache_db: Path):
     target_db_file = tmp_path / "lcsc_overlay.sqlite3"
     with LCSCDatabase(str(target_db_file)) as db:
-        db.init_schema(enable_fts=True)
+        db.init_schema()
 
         # 1. First, insert a product via LCSC scrape with detailed description
         lcsc_product = {

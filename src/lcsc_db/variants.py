@@ -43,11 +43,101 @@ def compress_file(file_path: Path) -> Path:
     return archive_path
 
 
-def create_fts_only_variant(base_db_path: Path, output_db_path: Path) -> Path:
-    """Create a standalone FTS-only database containing only the products_fts virtual table.
+FTS_STANDALONE_DDL = """
+CREATE VIRTUAL TABLE products_fts USING fts5(
+    lcsc_number,
+    mfr_part_number,
+    brand_name,
+    package,
+    description,
+    first_category_name,
+    second_category_name,
+    third_category_name,
+    brand_id UNINDEXED,
+    category_id UNINDEXED,
+    stock UNINDEXED,
+    stock_sz UNINDEXED,
+    stock_js UNINDEXED,
+    stock_hk UNINDEXED,
+    moq UNINDEXED,
+    spq UNINDEXED,
+    min_packet_number UNINDEXED,
+    min_packet_unit UNINDEXED,
+    product_unit UNINDEXED,
+    product_arrange UNINDEXED,
+    price_ladder UNINDEXED,
+    pdf_url UNINDEXED,
+    image_url UNINDEXED,
+    product_images UNINDEXED,
+    msl UNINDEXED,
+    eccn UNINDEXED,
+    url UNINDEXED,
+    is_rohs UNINDEXED,
+    is_hot UNINDEXED,
+    is_reel UNINDEXED,
+    reel_price UNINDEXED,
+    is_sample UNINDEXED,
+    is_discount UNINDEXED,
+    is_pre_sale UNINDEXED,
+    jlcpcb_stock UNINDEXED,
+    jlcpcb_price_ladder UNINDEXED,
+    jlcpcb_library_type UNINDEXED,
+    jlcpcb_extra UNINDEXED,
+    jlcpcb_last_updated UNINDEXED,
+    last_updated UNINDEXED,
+    tokenize="trigram"
+);
+"""
 
-    The virtual table does not use external content ('content=' parameter),
-    making it completely self-contained and significantly smaller.
+FTS_COLUMNS = [
+    "lcsc_number",
+    "mfr_part_number",
+    "brand_name",
+    "package",
+    "description",
+    "first_category_name",
+    "second_category_name",
+    "third_category_name",
+    "brand_id",
+    "category_id",
+    "stock",
+    "stock_sz",
+    "stock_js",
+    "stock_hk",
+    "moq",
+    "spq",
+    "min_packet_number",
+    "min_packet_unit",
+    "product_unit",
+    "product_arrange",
+    "price_ladder",
+    "pdf_url",
+    "image_url",
+    "product_images",
+    "msl",
+    "eccn",
+    "url",
+    "is_rohs",
+    "is_hot",
+    "is_reel",
+    "reel_price",
+    "is_sample",
+    "is_discount",
+    "is_pre_sale",
+    "jlcpcb_stock",
+    "jlcpcb_price_ladder",
+    "jlcpcb_library_type",
+    "jlcpcb_extra",
+    "jlcpcb_last_updated",
+    "last_updated",
+]
+
+
+def create_fts_only_variant(base_db_path: Path, output_db_path: Path) -> Path:
+    """Create a standalone FTS search database containing products_fts with UNINDEXED columns and categories.
+
+    The virtual table contains full-text search indexes on part numbers, brand, package, description,
+    and categories, while storing all other product attributes as UNINDEXED columns for fast direct lookup.
     """
     if output_db_path.exists():
         output_db_path.unlink()
@@ -59,50 +149,48 @@ def create_fts_only_variant(base_db_path: Path, output_db_path: Path) -> Path:
         conn.execute("PRAGMA journal_mode = WAL;")
 
         # Create standalone FTS5 table
-        conn.execute(
-            """
-            CREATE VIRTUAL TABLE products_fts USING fts5(
-                lcsc_number,
-                mfr_part_number,
-                brand_name,
-                package,
-                description,
-                first_category_name,
-                second_category_name,
-                tokenize="trigram"
-            );
-            """
-        )
+        conn.execute(FTS_STANDALONE_DDL)
 
-        # Attach base database and copy searchable columns
+        # Attach base database and copy searchable + unindexed columns
         conn.execute("ATTACH DATABASE ? AS src;", (str(base_db_path.resolve()),))
         conn.execute("BEGIN TRANSACTION;")
+
+        cols_str = ", ".join(FTS_COLUMNS)
         conn.execute(
-            """
-            INSERT INTO products_fts (
-                lcsc_number,
-                mfr_part_number,
-                brand_name,
-                package,
-                description,
-                first_category_name,
-                second_category_name
-            )
-            SELECT
-                lcsc_number,
-                mfr_part_number,
-                brand_name,
-                package,
-                description,
-                first_category_name,
-                second_category_name
+            f"""
+            INSERT INTO products_fts ({cols_str})
+            SELECT {cols_str}
             FROM src.products;
             """
         )
+
+        # Copy categories table if it exists in src database
+        has_categories = conn.execute(
+            "SELECT 1 FROM src.sqlite_master WHERE type='table' AND name='categories';"
+        ).fetchone()
+        if has_categories:
+            conn.execute(
+                """
+                CREATE TABLE categories (
+                    id INTEGER PRIMARY KEY,
+                    parent_id INTEGER,
+                    name_en TEXT NOT NULL,
+                    name_cn TEXT,
+                    code TEXT
+                );
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO categories (id, parent_id, name_en, name_cn, code)
+                SELECT id, parent_id, name_en, name_cn, code FROM src.categories;
+                """
+            )
+
         conn.execute("COMMIT;")
         conn.execute("DETACH DATABASE src;")
 
-        # Optimize FTS and database file
+        # Optimize FTS index
         conn.execute("INSERT INTO products_fts(products_fts) VALUES('optimize');")
     finally:
         conn.close()
@@ -140,28 +228,21 @@ def create_sql_transform_variant(
 # Variant definitions: name -> (description, factory function)
 VARIANTS: dict[str, tuple[str, Callable[[Path, Path], Path]]] = {
     "fts_only": (
-        "Standalone FTS5 trigram search index only (no products/raw_json tables)",
+        "Standalone FTS5 trigram search index with all product attributes (UNINDEXED) & categories",
         create_fts_only_variant,
     ),
     "no_raw_json": (
-        "Full database with FTS5, but raw_json cleared to NULL",
+        "Full relational database with raw_json cleared to NULL",
         lambda src, dst: create_sql_transform_variant(
             src, dst, ["UPDATE products SET raw_json = NULL;", "VACUUM;"]
         ),
     ),
-    "no_fts": (
-        "Full database without FTS5 index table",
-        lambda src, dst: create_sql_transform_variant(
-            src, dst, ["DROP TABLE IF EXISTS products_fts;", "VACUUM;"]
-        ),
-    ),
     "minimal": (
-        "Minimal database without FTS5 index and raw_json cleared",
+        "Minimal relational database with raw_json cleared",
         lambda src, dst: create_sql_transform_variant(
             src,
             dst,
             [
-                "DROP TABLE IF EXISTS products_fts;",
                 "UPDATE products SET raw_json = NULL;",
                 "VACUUM;",
             ],

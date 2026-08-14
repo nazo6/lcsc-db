@@ -30,10 +30,6 @@ class SyncJLCPCBSettings(BaseModel):
         default=".jlcpcb_cache",
         description="Temporary directory to download JLCPCB cache chunks.",
     )
-    enable_fts: bool = Field(
-        default=True,
-        description="Build SQLite FTS5 trigram search index.",
-    )
     compress: bool = Field(
         default=False,
         description="Compress database to .tar.xz archive upon completion.",
@@ -52,18 +48,14 @@ class SyncJLCPCBSettings(BaseModel):
         print("JLCPCB Database Syncer -> LCSC Database")
         print(f"  Output DB Path  : {self.db_path}")
         print(f"  Cache Directory : {self.cache_dir}")
-        print(f"  Build FTS5 Index: {self.enable_fts}")
         print("==================================================")
 
         cache_dir = Path(self.cache_dir)
         cache_path = download_jlcpcb_cache(target_dir=cache_dir)
 
         with LCSCDatabase(db_path=self.db_path) as db:
-            db.init_schema(enable_fts=self.enable_fts)
+            db.init_schema()
             count = db.import_jlcpcb_cache(cache_path)
-            if self.enable_fts:
-                print("Rebuilding FTS5 trigram index...")
-                db.rebuild_fts()
             db.vacuum_and_optimize()
             print(f"Successfully synced {count:,} JLCPCB products into {self.db_path}.")
 
@@ -83,10 +75,6 @@ class ScrapeLCSCSettings(BaseModel):
     include_raw_json: bool = Field(
         default=True,
         description="Save raw API JSON response.",
-    )
-    enable_fts: bool = Field(
-        default=True,
-        description="Build SQLite FTS5 search index.",
     )
     category_id: int | None = Field(
         default=None,
@@ -116,7 +104,6 @@ class ScrapeLCSCSettings(BaseModel):
         print(f"  Request Delay   : {self.delay}s")
         print(f"  In-Stock Only   : {self.instock_only}")
         print(f"  Include Raw JSON: {self.include_raw_json}")
-        print(f"  Build FTS5 Index: {self.enable_fts}")
         if self.category_id:
             print(f"  Category Filter : #{self.category_id}")
         if self.max_pages:
@@ -125,17 +112,10 @@ class ScrapeLCSCSettings(BaseModel):
 
         api = LCSCApi(LCSCApiConfig(delay_seconds=self.delay))
         with LCSCDatabase(db_path=self.db_path) as db:
-            db.init_schema(enable_fts=self.enable_fts)
+            db.init_schema()
             config = ScraperConfig(
-                db_path=self.db_path,
-                delay=self.delay,
                 instock_only=self.instock_only,
                 include_raw_json=self.include_raw_json,
-                enable_fts=self.enable_fts,
-                category_id=self.category_id,
-                max_pages=self.max_pages,
-                compress=self.compress,
-                verbose=self.verbose,
             )
             scraper = LCSCScraper(api=api, db=db, config=config)
             count = scraper.run(

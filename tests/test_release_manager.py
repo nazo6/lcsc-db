@@ -29,23 +29,23 @@ def test_inspect_file_sizes(tmp_path: Path):
     assert db_key == "lcsc_only.sqlite3"
     assert meta["db_size_bytes"] == 1000
     assert meta["archive_size_bytes"] == 200
-    assert meta["variant"] == "LCSC Only (DB 2)"
+    assert meta["variant"] == "LCSC Only (Base DB)"
     assert arch_p == archive
 
 
 def test_build_and_extract_metadata():
     assets_meta = {
         "lcsc_only.sqlite3": {
-            "variant": "LCSC Only (DB 2)",
+            "variant": "LCSC Only (Base DB)",
             "archive_name": "lcsc_only.sqlite3.tar.xz",
             "description": "LCSC catalog only",
             "db_size_bytes": 1024 * 1024 * 100,
             "archive_size_bytes": 1024 * 1024 * 20,
         },
         "lcsc_fts_only.sqlite3": {
-            "variant": "FTS Only",
+            "variant": "FTS Search DB (Main)",
             "archive_name": "lcsc_fts_only.sqlite3.tar.xz",
-            "description": "FTS index",
+            "description": "FTS search database",
             "db_size_bytes": 1024 * 1024 * 50,
             "archive_size_bytes": 1024 * 1024 * 10,
         },
@@ -56,8 +56,8 @@ def test_build_and_extract_metadata():
     assert "20.00 MB" in notes
     assert "50.00 MB" in notes
     assert "10.00 MB" in notes
-    assert "| **LCSC Only (DB 2)** | `lcsc_only.sqlite3.tar.xz` | 20.00 MB | 100.00 MB |" in notes
-    assert "| **FTS Only** | `lcsc_fts_only.sqlite3.tar.xz` | 10.00 MB | 50.00 MB |" in notes
+    assert "| **LCSC Only (Base DB)** | `lcsc_only.sqlite3.tar.xz` | 20.00 MB | 100.00 MB |" in notes
+    assert "| **FTS Search DB (Main)** | `lcsc_fts_only.sqlite3.tar.xz` | 10.00 MB | 50.00 MB |" in notes
 
     extracted = extract_metadata_from_notes(notes)
     assert extracted["lcsc_only.sqlite3"]["db_size_bytes"] == 1024 * 1024 * 100

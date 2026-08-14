@@ -1,5 +1,4 @@
-"""Pydantic models for LCSC API responses and product data."""
-
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -78,6 +77,11 @@ class Product(_CamelModel):
     is_sample: bool | None = False
     is_discount: bool | None = False
     is_pre_sale: bool | None = False
+    jlcpcb_stock: int | None = 0
+    jlcpcb_price_ladder: str | None = None
+    jlcpcb_library_type: str | None = None
+    jlcpcb_extra: str | None = None
+    jlcpcb_last_updated: datetime | None = None
     params: list[ProductParam] | None = Field(None, alias="paramVOList")
 
     @property
