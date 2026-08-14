@@ -9,11 +9,9 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, CliApp, CliSubCommand, SettingsConfigDict
 
 from lcsc_db.api import LCSCApi, LCSCApiConfig
-from lcsc_db.db import LCSCDatabase
-from lcsc_db.jlcpcb import download_jlcpcb_cache
+from lcsc_db.db import VARIANTS, LCSCDatabase, compress_file, generate_all_variants
 from lcsc_db.release import run_release_manager
-from lcsc_db.scraper import LCSCScraper, ScraperConfig
-from lcsc_db.variants import VARIANTS, compress_file, generate_all_variants
+from lcsc_db.sync import LCSCScraper, ScraperConfig, download_jlcpcb_cache
 
 
 def compress_database(db_path: str) -> str:

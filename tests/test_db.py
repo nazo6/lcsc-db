@@ -6,9 +6,8 @@ import time
 import pytest
 from sqlmodel import Session, select, text
 
-from lcsc_db.db import LCSCDatabase
+from lcsc_db.db import LCSCDatabase, ProductRecord
 from lcsc_db.models import Product
-from lcsc_db.schema import ProductRecord
 
 
 @pytest.fixture

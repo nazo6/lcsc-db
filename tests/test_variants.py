@@ -7,14 +7,14 @@ from pathlib import Path
 import pytest
 from sqlmodel import col, select
 
-from lcsc_db.db import LCSCDatabase
-from lcsc_db.models import Product
-from lcsc_db.variants import (
+from lcsc_db.db import (
+    LCSCDatabase,
     compress_file,
     create_fts_only_variant,
     generate_all_variants,
     generate_variant,
 )
+from lcsc_db.models import Product
 
 
 @pytest.fixture

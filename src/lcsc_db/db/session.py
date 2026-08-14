@@ -10,8 +10,8 @@ from sqlalchemy import delete, inspect, text, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, col, create_engine, select
 
+from lcsc_db.db.schema import CategoryRecord, ProductParamRecord, ProductRecord
 from lcsc_db.models import Category, Product
-from lcsc_db.schema import CategoryRecord, ProductParamRecord, ProductRecord
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def _alembic_config(db_path: str) -> Config:
 class LCSCDatabase:
     """SQLite database manager for storing LCSC categories and products.
 
-    Schema is managed by Alembic migrations (see ``lcsc_db.migrations``);
+    Schema is managed by Alembic migrations (see ``lcsc_db.db.migrations``);
     data access uses SQLModel/SQLAlchemy.
     """
 
@@ -149,7 +149,7 @@ class LCSCDatabase:
 
     def import_jlcpcb_cache(self, cache_db_path: Path) -> int:
         """Import components and categories from an extracted JLCPCB cache.sqlite3."""
-        from lcsc_db.jlcpcb import import_cache_db
+        from lcsc_db.sync.jlcpcb import import_cache_db
 
         return import_cache_db(cache_db_path, Path(self.db_path))
 

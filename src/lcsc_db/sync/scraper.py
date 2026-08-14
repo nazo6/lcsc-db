@@ -8,8 +8,8 @@ from pydantic import BaseModel
 
 from lcsc_db.api import LCSCApi
 from lcsc_db.db import LCSCDatabase
-from lcsc_db.models import Category, CatalogEntry
-from lcsc_db.progress import ScrapeProgressLogger
+from lcsc_db.models import CatalogEntry, Category
+from lcsc_db.sync.progress import ScrapeProgressLogger
 
 logger = logging.getLogger(__name__)
 

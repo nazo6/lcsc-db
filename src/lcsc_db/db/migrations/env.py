@@ -4,7 +4,7 @@ from alembic import context
 from sqlmodel import SQLModel
 
 # Importing the module registers all table models with ``SQLModel.metadata``.
-import lcsc_db.schema  # noqa: F401
+import lcsc_db.db.schema  # noqa: F401
 
 config = context.config
 target_metadata = SQLModel.metadata

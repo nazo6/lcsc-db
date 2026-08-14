@@ -31,7 +31,7 @@ def compress_file(file_path: Path) -> Path:
     return archive_path
 
 
-from lcsc_db.variants import create_fts_only_variant
+from lcsc_db.db import create_fts_only_variant
 
 
 def measure_variant(

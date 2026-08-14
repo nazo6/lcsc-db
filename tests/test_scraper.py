@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 from sqlmodel import Session, func, select
 
 from lcsc_db.api import LCSCApi, LCSCApiConfig
-from lcsc_db.db import LCSCDatabase
+from lcsc_db.db import LCSCDatabase, ProductRecord
 from lcsc_db.models import (
     CatalogListResult,
     Category,
@@ -14,8 +14,7 @@ from lcsc_db.models import (
     Product,
     ProductQueryResult,
 )
-from lcsc_db.schema import ProductRecord
-from lcsc_db.scraper import LCSCScraper, ScraperConfig
+from lcsc_db.sync import LCSCScraper, ScraperConfig
 
 
 def test_scraper_options_and_run(tmp_path):
@@ -133,7 +132,7 @@ def test_scraper_keyword_fallback_and_warning(tmp_path, caplog):
 
 
 def test_format_duration():
-    from lcsc_db.progress import format_duration
+    from lcsc_db.sync import format_duration
 
     assert format_duration(5) == "5s"
     assert format_duration(65) == "1m 05s"

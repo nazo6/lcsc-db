@@ -1,6 +1,6 @@
 """SQLModel table models defining the SQLite database schema.
 
-The schema is managed through Alembic migrations (see ``lcsc_db/migrations``).
+The schema is managed through Alembic migrations (see ``lcsc_db/db/migrations``).
 These models are the source of truth for table structure and are registered
 in ``SQLModel.metadata``.
 """

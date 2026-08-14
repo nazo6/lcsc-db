@@ -6,10 +6,9 @@ from pathlib import Path
 import pytest
 from sqlmodel import Session, select
 
-from lcsc_db.db import LCSCDatabase
-from lcsc_db.jlcpcb import import_cache_db
+from lcsc_db.db import LCSCDatabase, ProductRecord
 from lcsc_db.models import Product
-from lcsc_db.schema import ProductRecord
+from lcsc_db.sync import import_cache_db
 
 
 @pytest.fixture
@@ -67,7 +66,7 @@ def mock_cache_db(tmp_path: Path) -> Path:
 
 
 def test_jlcpcb_import_and_trigram_fts(tmp_path: Path, mock_cache_db: Path):
-    from lcsc_db.variants import create_fts_only_variant
+    from lcsc_db.db import create_fts_only_variant
 
     target_db_file = tmp_path / "lcsc_test.sqlite3"
     with LCSCDatabase(str(target_db_file)) as db:
