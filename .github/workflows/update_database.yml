@@ -74,9 +74,7 @@ jobs:
           name: lcsc-databases
           path: |
             lcsc.sqlite3.tar.gz
-            lcsc.sqlite3
             lcsc_only.sqlite3.tar.gz
-            lcsc_only.sqlite3
 
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v3
