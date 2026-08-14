@@ -12,36 +12,41 @@ from pathlib import Path
 from lcsc_db.api import LCSCApi, LCSCApiConfig
 from lcsc_db.db import LCSCDatabase
 from lcsc_db.jlcpcb import download_jlcpcb_cache
+from lcsc_db.release import run_release_manager
 from lcsc_db.scraper import LCSCScraper, ScraperConfig
+from lcsc_db.variants import VARIANTS, compress_file, generate_all_variants
 
 
 def compress_database(db_path: str) -> str:
     """Compress database file to .tar.xz archive using xz/tar if available, falling back to tarfile."""
-    archive_path = f"{db_path}.tar.xz"
-    print(f"Compressing {db_path} -> {archive_path}...")
+    archive_path = compress_file(Path(db_path))
+    return str(archive_path)
 
-    db_path_obj = Path(db_path)
-    parent_dir = db_path_obj.parent if db_path_obj.parent != Path("") else Path(".")
-    filename = db_path_obj.name
-    archive_path_obj = Path(archive_path).resolve()
 
-    compressed_fast = False
-    if shutil.which("tar") is not None and shutil.which("xz") is not None:
-        try:
-            cmd = ["tar", "-I", "xz -T0", "-cf", str(archive_path_obj), filename]
-            subprocess.run(cmd, cwd=str(parent_dir), check=True, capture_output=True)
-            compressed_fast = True
-        except Exception as e:
-            logging.debug("Fast tar compression failed, falling back to python tarfile: %s", e)
-            compressed_fast = False
+def run_create_variants(args: argparse.Namespace) -> None:
+    """Execute database variant generation."""
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    selected = None if "all" in args.variants else args.variants
+    generate_all_variants(
+        base_db_path=Path(args.db_path),
+        output_dir=Path(args.output_dir) if args.output_dir else None,
+        selected_variants=selected,
+        compress=args.compress,
+    )
 
-    if not compressed_fast:
-        with tarfile.open(archive_path, "w:xz") as tar:
-            tar.add(db_path, arcname=os.path.basename(db_path))
 
-    size_mb = os.path.getsize(archive_path) / (1024 * 1024)
-    print(f"Compressed archive created: {archive_path} ({size_mb:.2f} MB)")
-    return archive_path
+def run_update_release(args: argparse.Namespace) -> None:
+    """Execute GitHub Release update and size stats logging."""
+    run_release_manager(
+        tag=args.tag,
+        title=args.title,
+        target_files=args.files,
+        dry_run=args.dry_run,
+    )
 
 
 def run_sync_jlcpcb(args: argparse.Namespace) -> None:
@@ -164,6 +169,49 @@ def build_parser() -> argparse.ArgumentParser:
     scrape_parser.add_argument("--compress", action=argparse.BooleanOptionalAction, default=False, help="Compress database to .tar.xz archive upon completion.")
     scrape_parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=False, help="Enable verbose DEBUG logging.")
     scrape_parser.set_defaults(func=run_scrape_lcsc)
+
+    # Subcommand: create-variants
+    variants_parser = subparsers.add_parser(
+        "create-variants",
+        help="Generate optimized database variants (e.g. fts_only, no_raw_json, minimal).",
+    )
+    variants_parser.add_argument("--db-path", default="lcsc.sqlite3", help="Input SQLite database file path.")
+    variants_parser.add_argument("--output-dir", default=None, help="Output directory for generated variants.")
+    variants_parser.add_argument(
+        "--variants",
+        nargs="+",
+        choices=list(VARIANTS.keys()) + ["all"],
+        default=["fts_only"],
+        help="List of variants to generate (default: fts_only).",
+    )
+    variants_parser.add_argument("--compress", action=argparse.BooleanOptionalAction, default=True, help="Compress generated variants to .tar.xz archive.")
+    variants_parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=False, help="Enable verbose DEBUG logging.")
+    variants_parser.set_defaults(func=run_create_variants)
+
+    # Subcommand: update-release
+    release_parser = subparsers.add_parser(
+        "update-release",
+        help="Upload files to GitHub Release and update release notes size table.",
+    )
+    release_parser.add_argument("--tag", default="latest", help="Release tag name (default: latest).")
+    release_parser.add_argument(
+        "--title",
+        default="LCSC Product Database (Latest)",
+        help="Release title (default: 'LCSC Product Database (Latest)').",
+    )
+    release_parser.add_argument(
+        "--files",
+        nargs="+",
+        required=True,
+        type=Path,
+        help="List of files (.sqlite3 or .tar.xz) to inspect and upload.",
+    )
+    release_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print updated release notes without calling GitHub CLI.",
+    )
+    release_parser.set_defaults(func=run_update_release)
 
     # Default / Top-Level Arguments (Backwards Compatibility)
     parser.add_argument("--db-path", default="lcsc.sqlite3", help="Output SQLite database file path.")

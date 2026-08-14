@@ -22,20 +22,26 @@ uv sync
 
 ## Usage
 
-You can run the CLI script defined in `pyproject.toml` (`lcsc-db`):
+You can run the CLI commands defined in `pyproject.toml` (`lcsc-db`):
 
 ```bash
-# Run help to view all options
+# Run help to view all subcommands
 uv run lcsc-db --help
 
-# Run a test/dry-run scrape for Category #51 (1 page only)
-uv run lcsc-db --category-id 51 --max-pages 1 --compress
+# 1. Scrape real-time LCSC catalog (DB 2: lcsc_only.sqlite3)
+uv run lcsc-db scrape-lcsc --db-path lcsc_only.sqlite3 --instock-only --compress
 
-# Run full in-stock scrape with default 2.0s delay
-uv run lcsc-db --instock-only --compress
+# 2. Sync JLCPCB component database (DB 1: lcsc.sqlite3)
+uv run lcsc-db sync-jlcpcb --db-path lcsc.sqlite3 --enable-fts --compress
+
+# 3. Generate database variants (e.g. FTS-only standalone index)
+uv run lcsc-db create-variants --db-path lcsc.sqlite3 --variants fts_only --compress
 ```
 
-### CLI Options
+### CLI Subcommands & Options
+
+#### `lcsc-db scrape-lcsc`
+Scrapes product information from LCSC API.
 
 | Option | Default | Description |
 | :--- | :--- | :--- |

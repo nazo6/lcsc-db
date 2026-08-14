@@ -5,20 +5,37 @@ on:
     - cron: "0 0 * * 0" # Every Sunday at 00:00 UTC
   workflow_dispatch:
     inputs:
+      phase:
+        description: "Execution Phase"
+        required: true
+        type: choice
+        default: "all"
+        options:
+          - "all"
+          - "phase1_lcsc_only"
+          - "phase2_jlcpcb_sync"
+          - "phase3_variants"
+          - "phase2_and_3"
       delay_seconds:
-        description: "Delay between API requests in seconds"
+        description: "Delay between API requests in seconds (Phase 1)"
         required: false
         default: "2.0"
       instock_only:
-        description: "Fetch in-stock products only (true/false)"
+        description: "Fetch in-stock products only (true/false) (Phase 1)"
         required: false
         default: "true"
 
+permissions:
+  contents: write
+
 jobs:
-  build-database:
+  # =========================================================================
+  # Phase 1: Scrape LCSC Catalog -> lcsc_only.sqlite3
+  # =========================================================================
+  phase1-lcsc-only:
+    name: "[Phase 1/3] Scrape LCSC (lcsc_only.sqlite3)"
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    if: github.event_name == 'schedule' || github.event.inputs.phase == 'all' || github.event.inputs.phase == 'phase1_lcsc_only' || github.event.inputs.phase == ''
 
     steps:
       - name: Checkout repository
@@ -37,7 +54,7 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Download existing database release asset (for cache / delta update)
+      - name: Download existing database release asset (for delta update)
         continue-on-error: true
         run: |
           gh release download latest -p "lcsc_only.sqlite3.tar.xz" || true
@@ -48,7 +65,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: "[Phase 1/2] Run LCSC Database Scraper (Generate DB 2: LCSC Only)"
+      - name: Run LCSC Database Scraper
         run: |
           INSTOCK_FLAG="--instock-only"
           if [ "${{ github.event.inputs.instock_only }}" = "false" ]; then
@@ -58,32 +75,134 @@ jobs:
 
           uv run lcsc-db scrape-lcsc --db-path lcsc_only.sqlite3 --delay "$DELAY" $INSTOCK_FLAG --include-raw-json --enable-fts --compress
 
-      - name: "[Phase 2/2] Sync JLCPCB Component Database (Generate DB 1: JLCPCB Integrated)"
+      - name: Upload to GitHub Release & Update Notes Table
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'schedule'
         run: |
+          uv run lcsc-db update-release --files lcsc_only.sqlite3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload workflow artifact (lcsc_only)
+        uses: actions/upload-artifact@v7
+        with:
+          name: lcsc_only_db
+          path: |
+            lcsc_only.sqlite3
+            lcsc_only.sqlite3.tar.xz
+          retention-days: 1
+
+  # =========================================================================
+  # Phase 2: Sync JLCPCB Component Data -> lcsc.sqlite3
+  # =========================================================================
+  phase2-jlcpcb-sync:
+    name: "[Phase 2/3] Sync JLCPCB (lcsc.sqlite3)"
+    needs: [phase1-lcsc-only]
+    runs-on: ubuntu-latest
+    if: always() && !cancelled() && (needs.phase1-lcsc-only.result == 'success' || needs.phase1-lcsc-only.result == 'skipped') && (github.event_name == 'schedule' || github.event.inputs.phase == 'all' || github.event.inputs.phase == 'phase2_jlcpcb_sync' || github.event.inputs.phase == 'phase2_and_3' || github.event.inputs.phase == '')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Download lcsc_only database artifact
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: lcsc_only_db
+
+      - name: Prepare Base Database (Fallback to Release if artifact unavailable)
+        run: |
+          if [ ! -f "lcsc_only.sqlite3" ]; then
+            echo "Artifact not found. Downloading lcsc_only database from latest release..."
+            gh release download latest -p "lcsc_only.sqlite3.tar.xz"
+            tar -I 'xz -T0' -xf lcsc_only.sqlite3.tar.xz || tar -Jxf lcsc_only.sqlite3.tar.xz
+          fi
           cp lcsc_only.sqlite3 lcsc.sqlite3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync JLCPCB Database into lcsc.sqlite3
+        run: |
           uv run lcsc-db sync-jlcpcb --db-path lcsc.sqlite3 --enable-fts --compress
 
-      - name: Create or Update GitHub Release
-        uses: softprops/action-gh-release@v3
+      - name: Upload to GitHub Release & Update Notes Table
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'schedule'
-        with:
-          tag_name: latest
-          target_commitish: ${{ github.sha }}
-          name: "LCSC Product Database (Latest)"
-          body: |
-            Automated LCSC Product Database build release.
-
-            ### Download Links:
-            - **JLCPCB Integrated DB (DB 1)**: `lcsc.sqlite3.tar.xz` (Full JLCPCB + LCSC catalog)
-            - **LCSC Only DB (DB 2)**: `lcsc_only.sqlite3.tar.xz` (LCSC catalog only)
-
-            Built at: ${{ github.event.repository.updated_at }}
-          files: |
-            lcsc.sqlite3.tar.xz
-            lcsc_only.sqlite3.tar.xz
-          make_latest: true
-          overwrite: true
-          draft: false
-          prerelease: false
+        run: |
+          uv run lcsc-db update-release --files lcsc.sqlite3
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload workflow artifact (lcsc_integrated)
+        uses: actions/upload-artifact@v7
+        with:
+          name: lcsc_integrated_db
+          path: |
+            lcsc.sqlite3
+            lcsc.sqlite3.tar.xz
+          retention-days: 1
+
+  # =========================================================================
+  # Phase 3: Generate Optimized Variants -> lcsc_fts_only.sqlite3
+  # =========================================================================
+  phase3-variants:
+    name: "[Phase 3/3] Generate Variants (lcsc_fts_only.sqlite3)"
+    needs: [phase2-jlcpcb-sync]
+    runs-on: ubuntu-latest
+    if: always() && !cancelled() && (needs.phase2-jlcpcb-sync.result == 'success' || needs.phase2-jlcpcb-sync.result == 'skipped') && (github.event_name == 'schedule' || github.event.inputs.phase == 'all' || github.event.inputs.phase == 'phase3_variants' || github.event.inputs.phase == 'phase2_and_3' || github.event.inputs.phase == '')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Download lcsc database artifact
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: lcsc_integrated_db
+
+      - name: Prepare Base Database (Fallback to Release if artifact unavailable)
+        run: |
+          if [ ! -f "lcsc.sqlite3" ]; then
+            echo "Artifact not found. Downloading lcsc database from latest release..."
+            gh release download latest -p "lcsc.sqlite3.tar.xz"
+            tar -I 'xz -T0' -xf lcsc.sqlite3.tar.xz || tar -Jxf lcsc.sqlite3.tar.xz
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate FTS-Only Database Variant
+        run: |
+          uv run lcsc-db create-variants --db-path lcsc.sqlite3 --variants fts_only --compress
+
+      - name: Upload to GitHub Release & Update Notes Table
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'schedule'
+        run: |
+          uv run lcsc-db update-release --files lcsc_fts_only.sqlite3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
